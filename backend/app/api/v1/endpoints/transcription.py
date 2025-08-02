@@ -83,3 +83,60 @@ async def download_transcribed_file(filename: str):
     except Exception as e:
         logger.error(f"Erro ao baixar arquivo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/merge-status/{base_name}")
+async def get_merge_status(base_name: str):
+    """Verificar status do merge de partes"""
+    try:
+        merge_service = AudioMergeService(
+            settings.INPUT_DIR,
+            settings.OUTPUT_PARTS_DIR,
+            settings.OUTPUT_DIR
+        )
+        
+        parts = merge_service.find_audio_parts(base_name)
+        can_merge = merge_service.can_merge_parts(base_name)
+        merged_file_exists = (Path(settings.OUTPUT_DIR) / f"{base_name}.txt").exists()
+        
+        return {
+            "base_name": base_name,
+            "parts_found": len(parts),
+            "parts_list": [part.name for part in parts],
+            "can_merge": can_merge,
+            "merged_file_exists": merged_file_exists
+        }
+    except Exception as e:
+        logger.error(f"Erro ao verificar status do merge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/force-merge/{base_name}")
+async def force_merge_parts(base_name: str):
+    """Forçar merge de partes (mesmo que incompletas)"""
+    try:
+        merge_service = AudioMergeService(
+            settings.INPUT_DIR,
+            settings.OUTPUT_PARTS_DIR,
+            settings.OUTPUT_DIR
+        )
+        
+        parts = merge_service.find_audio_parts(base_name)
+        if not parts:
+            raise HTTPException(status_code=404, detail="Nenhuma parte encontrada")
+        
+        # Forçar merge ordenando as partes disponíveis
+        output_file = merge_service.merge_audio_parts(base_name)
+        
+        if output_file:
+            return {
+                "status": "completed",
+                "merged_file": output_file.name,
+                "message": "Merge forçado concluído"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Falha ao fazer merge forçado")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao forçar merge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

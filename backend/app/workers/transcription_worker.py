@@ -3,7 +3,9 @@ import logging
 from pathlib import Path
 from celery import Celery
 import whisper
+import re
 from app.core.config import settings
+from app.services.audio_merge_service import AudioMergeService
 
 # Configuração do Celery
 celery_app = Celery('whisper_worker')
@@ -30,6 +32,21 @@ except Exception as e:
     logger.error(f"Erro ao carregar modelo Whisper: {e}")
     model = None
 
+# Serviço de merge
+merge_service = AudioMergeService(
+    settings.INPUT_DIR,
+    settings.OUTPUT_PARTS_DIR,
+    settings.OUTPUT_DIR
+)
+
+def extract_base_name(filename: str) -> str:
+    """Extrair nome base removendo _partN"""
+    # Remover extensão
+    stem = Path(filename).stem
+    # Remover _partN se existir
+    base_name = re.sub(r'_part\d+$', '', stem)
+    return base_name
+
 @celery_app.task(bind=True)
 def transcribe_audio_task(self, file_path: str, task_id: str):
     """Task de transcrição de áudio"""
@@ -37,6 +54,7 @@ def transcribe_audio_task(self, file_path: str, task_id: str):
         if model is None:
             raise Exception("Modelo Whisper não está carregado")
         
+        file_path_obj = Path(file_path)
         logger.info(f"Iniciando transcrição para {file_path}")
         
         # Atualizar progresso
@@ -48,16 +66,28 @@ def transcribe_audio_task(self, file_path: str, task_id: str):
         # Atualizar progresso
         self.update_state(state='PROGRESS', meta={'status': 'saving', 'progress': 90})
         
-        # Salvar transcrição
-        output_filename = Path(file_path).stem + '.txt'
-        output_path = Path(settings.OUTPUT_DIR) / output_filename
+        # Determinar nome do arquivo de saída
+        base_name = extract_base_name(file_path_obj.name)
+        output_filename = f"{base_name}_part{file_path_obj.stem.split('_part')[-1] if '_part' in file_path_obj.stem else ''}.txt"
+        output_path = Path(settings.OUTPUT_PARTS_DIR) / output_filename
         
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(result["text"])
         
+        logger.info(f"Transcrição salva: {output_path}")
+        
+        # Verificar se pode fazer merge
+        if '_part' in file_path_obj.stem:
+            base_name_for_merge = extract_base_name(file_path_obj.name)
+            if merge_service.can_merge_parts(base_name_for_merge):
+                logger.info(f"Todas as partes presentes para {base_name_for_merge}, iniciando merge...")
+                merged_file = merge_service.merge_audio_parts(base_name_for_merge)
+                if merged_file:
+                    logger.info(f"Merge concluído: {merged_file}")
+        
         # Limpar arquivo original
         try:
-            os.remove(file_path)
+            file_path_obj.unlink()
             logger.info(f"Arquivo original removido: {file_path}")
         except Exception as e:
             logger.warning(f"Não foi possível remover arquivo original: {e}")
@@ -77,6 +107,37 @@ def transcribe_audio_task(self, file_path: str, task_id: str):
             state='FAILURE',
             meta={'status': 'error', 'error': str(exc)}
         )
+        raise exc
+
+# Worker para processamento automático de diretórios
+@celery_app.task(bind=True)
+def process_directories_worker(self):
+    """Worker para processar diretórios automaticamente"""
+    try:
+        logger.info("Iniciando processamento automático de diretórios")
+        
+        # Processar diretório GDrive
+        gdrive_service = AudioMergeService(
+            settings.INPUT_DIR,
+            settings.OUTPUT_PARTS_DIR,
+            settings.OUTPUT_DIR
+        )
+        
+        # Processar diretório Web
+        web_service = AudioMergeService(
+            settings.INPUT_WEB_DIR,
+            settings.OUTPUT_PARTS_DIR,
+            settings.OUTPUT_DIR
+        )
+        
+        # Verificar e processar merges pendentes
+        # Esta lógica pode ser expandida para verificar diretórios periodicamente
+        
+        logger.info("Processamento automático concluído")
+        return {'status': 'completed'}
+        
+    except Exception as exc:
+        logger.error(f"Erro no processamento automático: {exc}")
         raise exc
 
 if __name__ == '__main__':
