@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import logging
 import os
+
+from app.core.config import settings
+from app.api.v1.api import api_router
 
 # Configurar logging
 logging.basicConfig(level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
@@ -22,6 +26,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Incluir rotas da API
+app.include_router(api_router)
+
+# Montar diretório de arquivos transcritos
+app.mount("/output", StaticFiles(directory=settings.OUTPUT_DIR), name="output")
+
 @app.get("/")
 async def root():
     return {"message": "Whisper Enterprise API", "status": "running"}
@@ -38,5 +48,5 @@ async def health_check():
 from celery import Celery
 
 celery = Celery(__name__)
-celery.conf.broker_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
-celery.conf.result_backend = os.getenv('REDIS_URL', 'redis://localhost:6379')
+celery.conf.broker_url = settings.REDIS_URL
+celery.conf.result_backend = settings.REDIS_URL

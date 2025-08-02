@@ -34,7 +34,7 @@ class FileService:
             search_dir = Path(settings.INPUT_DIR)
         
         return [f for f in search_dir.iterdir() 
-                if f.is_file() and f.suffix.lower() in ['.mp3', '.wav', '.m4a', '.flac']]
+                if f.is_file() and f.suffix.lower() in ['.mp3', '.wav', '.m4a', '.flac', '.ogg']]
     
     def move_to_processed(self, file_path: Path) -> Path:
         """Mover arquivo processado para diretório de output_parts"""
