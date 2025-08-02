@@ -3,27 +3,27 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy package files
+# Copiar package files primeiro para aproveitar cache
 COPY package*.json ./
 
-# Install dependencies
+# Instalar dependências
 RUN npm install
 
-# Copy source code
+# Copiar código fonte
 COPY . .
 
-# Build the app
+# Build da aplicação
 RUN npm run build
 
 # Production stage
 FROM nginx:alpine
 
-# Copy built files
+# Copiar arquivos buildados
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
+# Copiar configuração do nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 3000
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]

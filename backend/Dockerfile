@@ -2,7 +2,7 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Instalar dependências do sistema
+# Instalar dependências do sistema INCLUINDO gcc e python3-dev ANTES de qualquer pip install
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
@@ -24,6 +24,8 @@ RUN pip install --no-cache-dir torch==2.5.1 torchaudio==2.5.1 --index-url https:
 
 # Instalar Whisper e outras dependências
 RUN pip install --no-cache-dir openai-whisper==20231117
+
+# Instalar requirements por último
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código

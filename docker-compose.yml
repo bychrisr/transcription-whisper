@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   redis:
     image: redis:7-alpine
@@ -88,11 +90,23 @@ services:
       - REDIS_URL=redis://redis:6379
     command: ["celery", "-A", "app.main.celery", "beat", "--loglevel=info"]
 
+  frontend:
+    build: 
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+
   nginx:
     image: nginx:alpine
     restart: unless-stopped
     depends_on:
       - backend
+      - frontend
     ports:
       - "8080:80"
     volumes:
@@ -100,17 +114,6 @@ services:
       - ./data/output:/usr/share/nginx/html/output:ro
     environment:
       - NGINX_HOST=${NGINX_HOST}
-   
-    frontend:
-      build: 
-        context: ./frontend
-      restart: unless-stopped
-      depends_on:
-        - backend
-      ports:
-        - "3000:3000"
-      environment:
-        - NODE_ENV=production
 
 volumes:
   postgres_data:
