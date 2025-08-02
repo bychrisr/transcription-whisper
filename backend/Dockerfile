@@ -11,19 +11,20 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar whisper primeiro (cache)
+# Criar script wait-for-it
+RUN curl -o /wait-for-it.sh https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh \
+    && chmod +x /wait-for-it.sh
+
+# Instalar dependências Python - ordem otimizada
 COPY requirements.txt .
 RUN pip install --no-cache-dir "numpy<2"
+
+# Instalar PyTorch primeiro (versão compatível)
+RUN pip install --no-cache-dir torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+
+# Instalar Whisper e outras dependências
 RUN pip install --no-cache-dir openai-whisper==20231117
-
-# Instalar outras dependências
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copia o script wait-for-it.sh para o container
-COPY wait-for-it.sh /wait-for-it.sh
-
-# Dá permissão de execução ao script
-RUN chmod +x /wait-for-it.sh
 
 # Copiar código
 COPY . .
