@@ -6,6 +6,7 @@ import whisper
 import re
 from app.core.config import settings
 from app.services.audio_merge_service import AudioMergeService
+from app.services.telegram_service import telegram_service
 
 # Configuração do Celery
 celery_app = Celery('whisper_worker')
@@ -28,8 +29,13 @@ logger.info("Carregando modelo Whisper...")
 try:
     model = whisper.load_model("medium")
     logger.info("Modelo Whisper carregado com sucesso!")
+    
+    # Notificar inicialização bem-sucedida
+    telegram_service.send_system_status("healthy", "Modelo Whisper carregado com sucesso!")
+    
 except Exception as e:
     logger.error(f"Erro ao carregar modelo Whisper: {e}")
+    telegram_service.send_error_notification(str(e), "Carregamento do modelo Whisper")
     model = None
 
 # Serviço de merge
@@ -68,13 +74,21 @@ def transcribe_audio_task(self, file_path: str, task_id: str):
         
         # Determinar nome do arquivo de saída
         base_name = extract_base_name(file_path_obj.name)
-        output_filename = f"{base_name}_part{file_path_obj.stem.split('_part')[-1] if '_part' in file_path_obj.stem else ''}.txt"
+        if '_part' in file_path_obj.stem:
+            part_number = file_path_obj.stem.split('_part')[-1]
+            output_filename = f"{base_name}_part{part_number}.txt"
+        else:
+            output_filename = f"{base_name}.txt"
+        
         output_path = Path(settings.OUTPUT_PARTS_DIR) / output_filename
         
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(result["text"])
         
         logger.info(f"Transcrição salva: {output_path}")
+        
+        # Notificar conclusão da transcrição
+        telegram_service.send_transcription_completed(file_path_obj.name)
         
         # Verificar se pode fazer merge
         if '_part' in file_path_obj.stem:
@@ -84,6 +98,9 @@ def transcribe_audio_task(self, file_path: str, task_id: str):
                 merged_file = merge_service.merge_audio_parts(base_name_for_merge)
                 if merged_file:
                     logger.info(f"Merge concluído: {merged_file}")
+                    # Notificar conclusão do merge
+                    parts_count = len(merge_service.find_audio_parts(base_name_for_merge))
+                    telegram_service.send_merge_completed(base_name_for_merge, parts_count)
         
         # Limpar arquivo original
         try:
@@ -103,6 +120,8 @@ def transcribe_audio_task(self, file_path: str, task_id: str):
         
     except Exception as exc:
         logger.error(f"Erro na transcrição: {exc}")
+        telegram_service.send_error_notification(str(exc), f"Transcrição de {file_path}")
+        
         self.update_state(
             state='FAILURE',
             meta={'status': 'error', 'error': str(exc)}
@@ -138,6 +157,7 @@ def process_directories_worker(self):
         
     except Exception as exc:
         logger.error(f"Erro no processamento automático: {exc}")
+        telegram_service.send_error_notification(str(exc), "Processamento automático de diretórios")
         raise exc
 
 if __name__ == '__main__':
