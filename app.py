@@ -138,15 +138,15 @@ def transcribe_part(model, mp3_file_path, output_txt_path):
         logger.error(f"[TRANSCRIBE] Erro ao transcrever {mp3_file_path}: {e}", exc_info=True)
         return False
 
-def check_and_merge_transcriptions(course_folder, module_item, base_name, module_output_parts_path, module_output_path):
+def check_and_merge_transcriptions(course_folder, module_item, base_name, module_path, module_output_parts_path, module_output_path):
     """
-    Verifica se todas as partes de uma transcrição estão presentes e as mescla.
+    Verifica se todas as partes de uma transcrição estão presentes, as mescla e limpa os temporários.
     """
     try:
         logger.info(f"[MERGE] Verificando se é possível fazer merge para: {base_name}")
         
         # 1. Encontrar todas as partes .mp3 originais (para verificar sequência)
-        all_mp3_parts = get_sorted_part_files(module_output_parts_path.replace("/output_parts/", "/input_web/"), base_name)
+        all_mp3_parts = get_sorted_part_files(module_path, base_name)
         
         # 2. Encontrar todas as partes .txt transcritoas
         all_txt_parts = get_sorted_transcribed_part_files(module_output_parts_path, base_name)
@@ -157,6 +157,7 @@ def check_and_merge_transcriptions(course_folder, module_item, base_name, module
             
             merged_content = ""
             txt_files_to_delete = []
+            mp3_files_to_delete = [] # Lista para arquivos .mp3 originais
             
             # 4. Ler o conteúdo de cada parte .txt em ordem e concatenar
             for txt_file in all_txt_parts:
@@ -179,14 +180,30 @@ def check_and_merge_transcriptions(course_folder, module_item, base_name, module
                     f.write(merged_content.strip()) # .strip() remove possíveis quebras extras no final
                 logger.info(f"[MERGE] Merge concluído e salvo em: {final_output_path}")
                 
-                # 6. (Opcional) Apagar os arquivos .txt de partes após o merge bem-sucedido
-                # TODO: Implementar limpeza de arquivos temporários (.txt de partes e .mp3 originais)
-                # Isso pode ser feito aqui ou em uma função separada de limpeza.
-                # Por enquanto, vamos apenas logar.
-                # for txt_file_path in txt_files_to_delete:
-                #     os.remove(txt_file_path)
-                #     logger.debug(f"[MERGE] Arquivo temporário removido: {txt_file_path}")
-                # TODO: Apagar os arquivos .mp3 originais também.
+                # 6. Limpeza: Apagar os arquivos .txt de partes após o merge bem-sucedido
+                for txt_file_path in txt_files_to_delete:
+                    try:
+                        os.remove(txt_file_path)
+                        logger.debug(f"[CLEANUP] Arquivo temporário .txt removido: {txt_file_path}")
+                    except Exception as e:
+                         logger.warning(f"[CLEANUP] Erro ao remover {txt_file_path}: {e}")
+                
+                # 7. Limpeza: Apagar os arquivos .mp3 originais também
+                for mp3_file in all_mp3_parts:
+                    mp3_file_path = os.path.join(module_path, mp3_file)
+                    mp3_files_to_delete.append(mp3_file_path)
+                
+                for mp3_file_path in mp3_files_to_delete:
+                    try:
+                        os.remove(mp3_file_path)
+                        logger.debug(f"[CLEANUP] Arquivo original .mp3 removido: {mp3_file_path}")
+                    except Exception as e:
+                         logger.warning(f"[CLEANUP] Erro ao remover {mp3_file_path}: {e}")
+
+                # 8. (Opcional) Verificar e remover pastas vazias
+                # Isso pode ser feito aqui ou em uma função separada.
+                # Por enquanto, vamos apenas logar que a limpeza das partes foi feita.
+                logger.info(f"[CLEANUP] Limpeza de arquivos temporários concluída para {base_name}.")
                 
                 return True
             except Exception as e:
@@ -286,16 +303,17 @@ def worker_web(model):
                                                  logger.info(f"[WORKER-WEB] Transcrição já existe, pulando: {output_txt_path}")
 
                                         # 9. Após tentar transcrever (ou verificar que já existem),
-                                        # verificar se é possível fazer o merge
+                                        # verificar se é possível fazer o merge E LIMPAR
                                         # Só tenta merge se houve transcrição OU se é a primeira vez checando
                                         # (para casos onde tudo já estava transcrito)
                                         if transcription_happened or all_parts: # Simplificação: tenta sempre se encontrou partes
                                             merge_success = check_and_merge_transcriptions(
                                                 course_folder, module_item, base_name,
+                                                module_path, # Passa o caminho do módulo de input também
                                                 module_output_parts_path, module_output_path
                                             )
                                             if merge_success:
-                                                logger.info(f"[WORKER-WEB] Processo completo para {base_name}.")
+                                                logger.info(f"[WORKER-WEB] Processo completo (transcrição, merge e limpeza) para {base_name}.")
                                                 # TODO: Notificação Telegram pode ser chamada aqui
                                             else:
                                                 logger.info(f"[WORKER-WEB] Merge não realizado para {base_name} (aguardando partes ou sequência incompleta).")
