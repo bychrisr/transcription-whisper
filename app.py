@@ -10,7 +10,7 @@ import shutil # Para salvar o arquivo uploadado
 from typing import List, Dict # Para tipagem dos retornos da API
 # --- Importações do FastAPI ---
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 import asyncio
@@ -25,7 +25,10 @@ INPUT_WEB_FOLDER = "/input_web"
 OUTPUT_PARTS_FOLDER = "/output_parts"
 OUTPUT_FOLDER = "/output" # Pasta raiz para transcrições finalizadas
 LOGS_FOLDER = "/logs"
-WEBUI_STATIC_FOLDER = "/app/webui" # Caminho padrão dentro do container
+# --- ATUALIZAÇÃO: Caminho para os arquivos estáticos da WebUI ---
+# Este é o caminho DENTRO DO CONTAINER onde os arquivos da WebUI compilada estarão
+WEBUI_STATIC_FOLDER = "/app/webui/dist" # <<< Atualizado para apontar para 'dist'
+# --------------------
 
 # --- Credenciais do Telegram (carregadas do .env) ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -54,6 +57,48 @@ logger = logging.getLogger(__name__)
 # --- Instância do FastAPI ---
 app = FastAPI(title="Whisper Transcription API", description="API para transcrição de áudios")
 # ----------------------------
+
+# --- Servir Arquivos Estáticos da WebUI ---
+# Verifica se a pasta de arquivos estáticos existe antes de tentar servir
+if os.path.isdir(WEBUI_STATIC_FOLDER):
+    logger.info(f"[WEBUI] Servindo arquivos estáticos da WebUI de: {WEBUI_STATIC_FOLDER}")
+    # Serve os arquivos estáticos (JS, CSS, imagens) de sub-rotas como /assets
+    app.mount("/assets", StaticFiles(directory=os.path.join(WEBUI_STATIC_FOLDER, "assets")), name="assets")
+    
+    # Serve o index.html e outros HTMLs da raiz da pasta static
+    # Isso permite que /ui ou / redirecione para index.html
+    @app.get("/ui", response_class=HTMLResponse, include_in_schema=False) # include_in_schema=False oculta da documentação Swagger
+    async def read_ui_index():
+        index_file_path = os.path.join(WEBUI_STATIC_FOLDER, "index.html")
+        if os.path.exists(index_file_path):
+            with open(index_file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return HTMLResponse(content=content)
+        else:
+            logger.warning(f"[WEBUI] Arquivo index.html não encontrado em {index_file_path}")
+            return HTMLResponse(content="<h1>WebUI não encontrada</h1><p>index.html não encontrado.</p>", status_code=404)
+
+    # Opcional: fazer com que a raiz (/) também sirva o index.html
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def read_root():
+        # Redireciona para /ui ou serve o index.html diretamente
+        # Vamos servir o index.html diretamente pela raiz também
+        index_file_path = os.path.join(WEBUI_STATIC_FOLDER, "index.html")
+        if os.path.exists(index_file_path):
+            with open(index_file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return HTMLResponse(content=content)
+        else:
+            # Se não encontrar index.html, mostra uma página padrão simples
+            return HTMLResponse(content="<h1>API Whisper Transcription</h1><p>Acesse <a href='/ui'>/ui</a> para a interface web.</p><p>Acesse <a href='/docs'>/docs</a> para a documentação da API.</p>")
+
+else:
+    logger.warning(f"[WEBUI] Pasta de arquivos estáticos '{WEBUI_STATIC_FOLDER}' não encontrada. WebUI não será servida.")
+    @app.get("/", include_in_schema=False)
+    async def read_root_no_ui():
+        return {"message": "API Whisper Transcription está rodando. WebUI não configurada/disponível."}
+
+# ---------------------------------------------
 
 # --- Modelos Pydantic para retornos da API ---
 from pydantic import BaseModel
