@@ -1,0 +1,54 @@
+# ~/apps/whisper-transcription-n8n/Dockerfile.monolith
+# Etapa 1: Construir a imagem base com dependências
+FROM python:3.9-slim
+
+# Labels para metadados
+LABEL maintainer="bychrisr"
+LABEL description="Whisper Transcription Monolith App"
+
+# Instala dependências do sistema necessárias
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    curl \
+    gcc \
+    python3-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Define o diretório de trabalho
+WORKDIR /app
+
+# Copia e instala as dependências Python
+# (Passo separado otimiza caching do Docker)
+COPY ./requirements.txt /app/requirements.txt
+# --- CORREÇÃO CRÍTICA ---
+# Garante numpy compatível com torch/whisper
+RUN pip install --no-cache-dir "numpy<2"
+# ------------------------
+# Instala PyTorch para CPU (compatível com ARM64)
+RUN pip install --no-cache-dir torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+# Instala o Whisper específico
+RUN pip install --no-cache-dir openai-whisper==20231117
+# Instala as demais dependências
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Define o PYTHONPATH (resolve ModuleNotFoundError)
+ENV PYTHONPATH=/app
+
+# Cria diretórios de dados padrão dentro do container
+# (Os volumes do docker-compose.yml irão mapear para o host)
+RUN mkdir -p data/input data/input_web data/output data/output_parts data/logs
+
+# Copia o código da aplicação
+COPY ./app.py /app/
+# Se você tiver uma pasta utils:
+# COPY ./utils /app/utils
+# Se você tiver uma pasta webui (para FastAPI servir arquivos estáticos/templates):
+COPY ./webui /app/webui
+
+# Expõe a porta para a WebUI (FastAPI/Uvicorn)
+EXPOSE 8000
+
+# Comando padrão para iniciar a aplicação
+# Usando python diretamente para mais controle
+CMD ["python", "app.py"]

@@ -1,0 +1,43 @@
+# ~/apps/whisper-transcription-n8n/docker-compose.monolith.yml
+# Configuração para o sistema Whisper Transcription Monolítico com Threads
+
+# AVISO: O atributo 'version' é obsoleto, foi removido conforme aviso do Docker Compose.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.monolith # Usa nosso novo Dockerfile
+    container_name: whisper-transcription-app
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+        # Mapeia porta 8001 do host para 8000 do container
+        # (8000 pode estar em uso pelo Portainer, conforme PDF)
+    volumes:
+      # Mapeia os diretórios de dados do host para o container
+      - ./data/input:/input
+      - ./data/input_web:/input_web
+      - ./data/output_parts:/output_parts
+      - ./data/output:/output
+      - ./data/logs:/logs
+      # Se estiver usando rclone externamente:
+      # - /caminho/no/host/para/gdrive:/input:ro # Montagem somente leitura se for rclone mount
+    environment:
+      # Configurações para o Telegram (obtidas do seu .env ou definidas aqui)
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # Outras variáveis de ambiente podem ser adicionadas aqui
+      # Se precisar de mais recursos, pode ajustar:
+      # deploy:
+      #   resources:
+      #     limits:
+      #       memory: 20G # Limita o uso de memória
+      # depends_on:
+      #   - # Nenhum serviço externo necessário na arquitetura monolítica
+
+      # Notas:
+      # - Este arquivo define apenas 1 serviço: 'app'.
+      # - Não há 'redis', 'postgres', 'celery-worker', etc.
+      # - Todos os volumes são mapeados para pastas dentro de './data' no host.
+      # - As variáveis de ambiente TELEGRAM_* são passadas para o container.

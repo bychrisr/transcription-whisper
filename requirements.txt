@@ -1,0 +1,19 @@
+# ~/apps/whisper-transcription-n8n/requirements.txt
+# Dependências principais
+openai-whisper==20231117
+torch==2.5.1
+torchaudio==2.5.1
+numpy<2 # Correção crítica para compatibilidade
+
+# Web Framework (FastAPI recomendado pelo PDF, mas Flask também serve)
+fastapi>=0.68.0,<0.115.0 # Versão compatível com pydantic v2
+uvicorn[standard]>=0.15.0
+# OU, se for usar Flask:
+# flask==2.3.3
+# werkzeug==2.3.8
+
+# Para notificações Telegram
+requests>=2.25.0
+
+# Outras utilitárias (se precisar)
+# python-multipart # Para upload de arquivos no FastAPI
