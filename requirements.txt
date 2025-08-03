@@ -8,6 +8,8 @@ numpy<2 # Correção crítica para compatibilidade
 # Web Framework (FastAPI recomendado pelo PDF, mas Flask também serve)
 fastapi>=0.68.0,<0.115.0 # Versão compatível com pydantic v2
 uvicorn[standard]>=0.15.0
+python-multipart 
+pydantic>=2.0.0 # FastAPI o requer, mas é bom especificar
 # OU, se for usar Flask:
 # flask==2.3.3
 # werkzeug==2.3.8

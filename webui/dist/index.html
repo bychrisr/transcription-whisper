@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper Transcription UI</title>
+</head>
+
+<body>
+    <h1>Bem-vindo à WebUI do Whisper Transcription!</h1>
+    <p>A API está funcionando. Esta é a interface web.</p>
+    <p>Status da API: <span id="api-status">Carregando...</span></p>
+    <script>
+        // Exemplo simples de chamada à API
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('api-status').innerText = data.status + " - " + data.message;
+            })
+            .catch(error => {
+                console.error('Erro ao buscar status:', error);
+                document.getElementById('api-status').innerText = "Erro ao conectar à API.";
+            });
+    </script>
+</body>
+
+</html>

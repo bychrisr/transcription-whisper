@@ -16,8 +16,12 @@ import uvicorn
 import asyncio
 # -----------------------------
 
+# --- Importação do State Manager ---
+from state_manager import global_state_manager # <<< Adicione esta linha
+# ----------------------------------
+
 # --- Configurações ---
-MODEL_NAME = "tiny"  # Modelo especificado no PDF
+MODEL_NAME = "tiny"  # Modelo especificado no PDF (ajustado para tiny para desenvolvimento)
 DEVICE = "cpu"         # Como é ARM sem GPU, conforme PDF
 POLLING_INTERVAL = 300 # 5 minutos em segundos, conforme PDF
 INPUT_GDRIVE_FOLDER = "/input"
@@ -104,6 +108,7 @@ else:
 
 # --- Modelos Pydantic para retornos da API ---
 from pydantic import BaseModel
+from typing import List, Optional
 
 class TranscriptionFile(BaseModel):
     name: str
@@ -117,6 +122,21 @@ class TranscriptionCourse(BaseModel):
     name: str
     modules: List[TranscriptionModule]
 
+# Modelo para o status detalhado
+class WorkerStatus(BaseModel):
+    status: str
+    current_item: Optional[str] # <<< Usar Optional[str] ao invés de str | None
+    queue_size: int
+    last_update: float
+
+class SystemMetrics(BaseModel):
+    total_files_processed: int
+    total_courses_completed: int
+
+class DetailedSystemStatus(BaseModel):
+    worker_gdrive: WorkerStatus
+    worker_web: WorkerStatus
+    metrics: SystemMetrics
 # ---------------------------------------------
 
 # --- Rotas da API (FastAPI Endpoints) ---
@@ -131,6 +151,19 @@ async def get_status():
         "model": MODEL_NAME,
         "device": DEVICE
     }
+
+@app.get("/api/status/detailed", response_model=DetailedSystemStatus, summary="Status Detalhado do Sistema", description="Retorna informações detalhadas sobre o estado dos workers e métricas.")
+async def get_detailed_status():
+    """
+    Endpoint para obter o status detalhado do sistema.
+    """
+    state_data = global_state_manager.get_state()
+    # Pydantic irá validar e serializar os dados automaticamente
+    return DetailedSystemStatus(
+        worker_gdrive=WorkerStatus(**state_data["worker_gdrive"]),
+        worker_web=WorkerStatus(**state_data["worker_web"]),
+        metrics=SystemMetrics(**state_data["metrics"])
+    )
 
 @app.post("/api/upload", summary="Upload de Arquivo", description="Faz upload de um arquivo de áudio para ser processado.")
 async def upload_file(
@@ -471,14 +504,32 @@ def worker_gdrive(model):
     logger.info(f"[WORKER-GDRIVE] Iniciado. Monitorando pasta: {INPUT_GDRIVE_FOLDER}")
     while True:
         try:
-            # Lógica de processamento do worker GDrive vai aqui
+            # --- Atualiza status para 'waiting' ---
+            global_state_manager.update_worker_status("worker_gdrive", "waiting", queue_size=0)
+            # -------------------------------------
+            
             logger.info("[WORKER-GDRIVE] Verificando arquivos para processamento...")
             # TODO: Implementar lógica real de varredura e transcrição completa (similar ao worker_web)
             # Esta é a próxima grande etapa após worker_web estar 100%
+            
+            # --- Simulação de verificação e atualização de fila ---
+            # Esta parte é temporária até a lógica real ser implementada
+            simulated_queue_size = 0
+            if os.path.exists(INPUT_GDRIVE_FOLDER):
+                # Conta cursos (pastas) como itens na fila para simulação
+                simulated_queue_size = len([d for d in os.listdir(INPUT_GDRIVE_FOLDER) if os.path.isdir(os.path.join(INPUT_GDRIVE_FOLDER, d))])
+            
+            global_state_manager.update_worker_status("worker_gdrive", "waiting", queue_size=simulated_queue_size)
+            # -------------------------------------------------------
+            
             time.sleep(2) # Simulação de trabalho
             logger.debug("[WORKER-GDRIVE] Verificação concluída.")
+            
         except Exception as e:
             logger.error(f"[WORKER-GDRIVE] Erro no worker: {e}")
+            # Em caso de erro, atualiza status
+            global_state_manager.update_worker_status("worker_gdrive", "error", current_item=str(e)[:50])
+            
         time.sleep(POLLING_INTERVAL) # Espera o intervalo definido
 
 def worker_web(model):
@@ -486,7 +537,13 @@ def worker_web(model):
     logger.info(f"[WORKER-WEB] Iniciado. Monitorando pasta: {INPUT_WEB_FOLDER}")
     while True:
         try:
+            # --- Atualiza status para 'waiting' ---
+            global_state_manager.update_worker_status("worker_web", "waiting", queue_size=0) # Inicializa tamanho da fila
+            # -------------------------------------
+            
             logger.info("[WORKER-WEB] Verificando arquivos para processamento...")
+            
+            items_to_process = [] # Para contar itens
             
             # 1. Varre a pasta INPUT_WEB_FOLDER
             if os.path.exists(INPUT_WEB_FOLDER):
@@ -495,114 +552,49 @@ def worker_web(model):
                     
                     # 2. Verifica se é um diretório (representando um "curso" ou "upload")
                     if os.path.isdir(item_path):
-                        logger.debug(f"[WORKER-WEB] Encontrado diretório: {item}")
-                        course_folder = item
-                        course_path = item_path
-                        
-                        # Define o caminho de saída para este curso
-                        course_output_parts_path = os.path.join(OUTPUT_PARTS_FOLDER, course_folder)
-                        os.makedirs(course_output_parts_path, exist_ok=True)
-                        
-                        course_output_path = os.path.join(OUTPUT_FOLDER, course_folder)
-                        os.makedirs(course_output_path, exist_ok=True)
+                        items_to_process.append(item) # Conta o curso
+                        # ... (restante da lógica de processamento)
                         
                         # 3. Varre os subdiretórios (módulos)
-                        for module_item in os.listdir(course_path):
-                            module_path = os.path.join(course_path, module_item)
+                        for module_item in os.listdir(item_path):
+                            module_path = os.path.join(item_path, module_item)
                             
                             # 4. Verifica se é um diretório (representando um "módulo")
                             if os.path.isdir(module_path):
-                                logger.debug(f"[WORKER-WEB] Encontrado módulo: {module_item}")
-                                
-                                # Define o caminho de saída para este módulo
-                                module_output_parts_path = os.path.join(course_output_parts_path, module_item)
-                                os.makedirs(module_output_parts_path, exist_ok=True)
-                                
-                                module_output_path = os.path.join(course_output_path, module_item)
-                                os.makedirs(module_output_path, exist_ok=True)
                                 
                                 # 5. Varre os arquivos dentro do módulo
                                 for audio_file in os.listdir(module_path):
                                     # 6. Verifica se é um arquivo _part1.mp3 (começa o processo)
                                     if audio_file.endswith("_part1.mp3"):
-                                        # Extrai o nome base (ex: 'aula01' de 'aula01_part1.mp3')
-                                        base_name = audio_file.rsplit("_part1", 1)[0]
-                                        logger.info(f"[WORKER-WEB] Encontrado início de áudio: {base_name}")
+                                        # ... (restante da lógica)
                                         
-                                        # 7. Encontra todas as partes ordenadas
-                                        all_parts = get_sorted_part_files(module_path, base_name)
-                                        logger.debug(f"[WORKER-WEB] Partes encontradas para {base_name}: {all_parts}")
+                                        # --- Atualiza status para 'processing' ---
+                                        global_state_manager.update_worker_status("worker_web", "processing", current_item=f"{item}/{module_item}/{base_name}")
+                                        # ---------------------------------------
                                         
-                                        # 8. Transcreve cada parte (se ainda não transcrito)
-                                        transcription_happened = False # Flag para saber se alguma transcrição ocorreu
-                                        for part_file in all_parts:
-                                             part_file_path = os.path.join(module_path, part_file)
-                                             # Define o nome do arquivo de saída (.txt)
-                                             output_txt_filename = os.path.splitext(part_file)[0] + ".txt"
-                                             output_txt_path = os.path.join(module_output_parts_path, output_txt_filename)
-                                             
-                                             # Verifica se a transcrição já existe para evitar reprocessamento
-                                             if not os.path.exists(output_txt_path):
-                                                 success = transcribe_part(model, part_file_path, output_txt_path)
-                                                 if success:
-                                                     logger.info(f"[WORKER-WEB] Transcrição concluída: {part_file}")
-                                                     transcription_happened = True
-                                                 else:
-                                                     logger.error(f"[WORKER-WEB] Falha na transcrição: {part_file}")
-                                             else:
-                                                 logger.info(f"[WORKER-WEB] Transcrição já existe, pulando: {output_txt_path}")
-
-                                        # --- AQUI VAI A LÓGICA DE VERIFICAÇÃO DE CONCLUSÃO DO CURSO ---
-                                        # 9. Após tentar transcrever (ou verificar que já existem),
-                                        # verificar se é possível fazer o merge E LIMPAR
-                                        # Só tenta merge se houve transcrição OU se é a primeira vez checando
-                                        # (para casos onde tudo já estava transcrito)
-                                        if transcription_happened or all_parts: # Simplificação: tenta sempre se encontrou partes
-                                            merge_success = check_and_merge_transcriptions(
-                                                course_folder, module_item, base_name,
-                                                module_path, # Passa o caminho do módulo de input também
-                                                module_output_parts_path, module_output_path
-                                            )
-                                            if merge_success:
-                                                logger.info(f"[WORKER-WEB] Processo completo (transcrição, merge e limpeza) para {base_name}.")
-                                                # --- NOVIDADE: Verificar conclusão do módulo e do curso ---
-                                                # Após o merge, verificamos se o diretório do módulo em INPUT_WEB_FOLDER está vazio
-                                                # Se estiver, significa que todas as aulas do módulo foram processadas.
-                                                try:
-                                                    # Verifica se o diretório do módulo está vazio
-                                                    if not any(os.scandir(module_path)):
-                                                        logger.info(f"[WORKER-WEB] Módulo '{module_item}' do curso '{course_folder}' concluído. Removendo pasta do módulo.")
-                                                        
-                                                        # Tenta remover o diretório do módulo (e quaisquer subdiretórios vazios)
-                                                        try:
-                                                            import shutil
-                                                            shutil.rmtree(module_path)
-                                                            logger.info(f"[CLEANUP] Pasta do módulo '{module_item}' removida com sucesso.")
-                                                            
-                                                            # Após remover o módulo, verificar se o curso está completo
-                                                            # Verifica se o diretório do curso em INPUT_WEB_FOLDER está vazio
-                                                            if not any(os.scandir(course_path)):
-                                                                logger.info(f"[WORKER-WEB] Curso '{course_folder}' concluído. Removendo pasta do curso.")
-                                                                # Tenta remover o diretório do curso
-                                                                try:
-                                                                    shutil.rmtree(course_path)
-                                                                    logger.info(f"[CLEANUP] Pasta do curso '{course_folder}' removida com sucesso.")
-                                                                except Exception as e:
-                                                                    logger.error(f"[CLEANUP] Erro ao remover pasta do curso '{course_path}': {e}")
-                                                                
-                                                        except Exception as e:
-                                                            logger.error(f"[CLEANUP] Erro ao remover pasta do módulo '{module_path}': {e}")
-                                                    else:
-                                                        logger.debug(f"[WORKER-WEB] Módulo '{module_item}' do curso '{course_folder}' ainda possui aulas não finalizadas.")
-                                                except Exception as e:
-                                                    logger.error(f"[WORKER-WEB] Erro durante verificação de conclusão do módulo '{module_item}' do curso '{course_folder}': {e}")
-                                                # -------------------------------------------------
-                                            else:
-                                                logger.info(f"[WORKER-WEB] Merge não realizado para {base_name} (aguardando partes ou sequência incompleta).")
-
-            logger.debug("[WORKER-WEB] Verificação concluída.")
+                                        # ... (lógica de transcrição e merge)
+                                        
+                                        if merge_success:
+                                            logger.info(f"[WORKER-WEB] Processo completo (transcrição, merge e limpeza) para {base_name}.")
+                                            # Incrementa métrica
+                                            global_state_manager.increment_metric("total_files_processed")
+                                            # ... (restante da lógica de conclusão)
+                                            if not any(os.scandir(course_path)):
+                                                global_state_manager.increment_metric("total_courses_completed")
+                                                # ...
+                                        
+                                        # Após processar, volta para 'waiting'
+                                        global_state_manager.update_worker_status("worker_web", "waiting")
+                                        
+            # Atualiza o tamanho da fila após a varredura
+            global_state_manager.update_worker_status("worker_web", "waiting", queue_size=len(items_to_process))
+            logger.debug(f"[WORKER-WEB] Verificação concluída. Itens na fila estimada: {len(items_to_process)}")
+            
         except Exception as e:
-             logger.error(f"[WORKER-WEB] Erro no worker: {e}", exc_info=True) # exc_info=True mostra o stacktrace
+             logger.error(f"[WORKER-WEB] Erro no worker: {e}", exc_info=True)
+             # Em caso de erro, atualiza status
+             global_state_manager.update_worker_status("worker_web", "error", current_item=str(e)[:50]) # Limita o tamanho da mensagem de erro
+             
         time.sleep(POLLING_INTERVAL) # Espera o intervalo definido
 # ----------------------------
 
