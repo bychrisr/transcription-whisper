@@ -17,6 +17,7 @@ services:
       - ./logs:/app/logs
       # Mapeie o diretório da WebUI React (build final)
       - ./webui/dist:/app/webui/dist
+      - ./uploads:/app/uploads
       # Mapeie o .env para o container (se estiver usando variáveis de ambiente)
       # - ./.env:/app/.env
     environment:
