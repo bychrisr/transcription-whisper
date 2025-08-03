@@ -148,4 +148,66 @@ def worker_web(model):
                                         base_name = audio_file.rsplit("_part1", 1)[0]
                                         logger.info(f"[WORKER-WEB] Encontrado início de áudio: {base_name}")
                                         
-                                        # 7. Encontra todas
+                                        # 7. Encontra todas as partes ordenadas
+                                        all_parts = get_sorted_part_files(module_path, base_name)
+                                        logger.debug(f"[WORKER-WEB] Partes encontradas para {base_name}: {all_parts}")
+                                        
+                                        # 8. Transcreve cada parte
+                                        for part_file in all_parts:
+                                             part_file_path = os.path.join(module_path, part_file)
+                                             # Define o nome do arquivo de saída (.txt)
+                                             # Ex: 'aula01_part1.mp3' -> 'aula01_part1.txt'
+                                             output_txt_filename = os.path.splitext(part_file)[0] + ".txt"
+                                             output_txt_path = os.path.join(module_output_parts_path, output_txt_filename)
+                                             
+                                             # Verifica se a transcrição já existe para evitar reprocessamento
+                                             if not os.path.exists(output_txt_path):
+                                                 success = transcribe_part(model, part_file_path, output_txt_path)
+                                                 if success:
+                                                     logger.info(f"[WORKER-WEB] Transcrição concluída: {part_file}")
+                                                 else:
+                                                     logger.error(f"[WORKER-WEB] Falha na transcrição: {part_file}")
+                                             else:
+                                                 logger.info(f"[WORKER-WEB] Transcrição já existe, pulando: {output_txt_path}")
+
+                                        # TODO: Lógica de merge e limpeza virá aqui também
+
+            logger.debug("[WORKER-WEB] Verificação concluída.")
+        except Exception as e:
+             logger.error(f"[WORKER-WEB] Erro no worker: {e}", exc_info=True) # exc_info=True mostra o stacktrace
+        time.sleep(POLLING_INTERVAL) # Espera o intervalo definido
+
+def main():
+    """Função principal que inicia o aplicativo."""
+    logger.info("Iniciando aplicação Whisper Transcription...")
+    
+    # 1. Carrega o modelo Whisper (uma única vez)
+    try:
+        model = load_whisper_model()
+    except Exception as e:
+        logger.critical(f"Não foi possível iniciar a aplicação devido a um erro no carregamento do modelo: {e}")
+        return
+
+    # 2. Inicia os workers em threads separadas
+    logger.info("Iniciando workers em threads...")
+    thread_gdrive = threading.Thread(target=worker_gdrive, args=(model,), name="Worker-GDrive", daemon=True)
+    thread_web = threading.Thread(target=worker_web, args=(model,), name="Worker-Web", daemon=True)
+    
+    thread_gdrive.start()
+    thread_web.start()
+    logger.info("Workers iniciados com sucesso.")
+
+    # 3. Mantém a aplicação principal viva
+    try:
+        logger.info("Aplicação principal em execução. Aguardando workers...")
+        # Threads daemon encerram quando o programa principal encerra.
+        # Podemos usar um loop simples para manter o programa ativo.
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Recebido sinal de interrupção. Finalizando aplicação...")
+    finally:
+        logger.info("Aplicação encerrada.")
+
+if __name__ == "__main__":
+    main()
