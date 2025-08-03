@@ -5,6 +5,7 @@ import os
 import threading
 import logging
 import re # Para ordenar os arquivos por número da parte
+import requests # Para notificações Telegram (manter import para futuro)
 
 # --- Configurações ---
 MODEL_NAME = "medium"  # Modelo especificado no PDF
@@ -15,6 +16,11 @@ INPUT_WEB_FOLDER = "/input_web"
 OUTPUT_PARTS_FOLDER = "/output_parts"
 OUTPUT_FOLDER = "/output"
 LOGS_FOLDER = "/logs"
+
+# --- Credenciais do Telegram (carregadas do .env) ---
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# --------------------
 
 # Configuração de Logging (centralizado, conforme PDF)
 log_file_path = os.path.join(LOGS_FOLDER, "app.log")
@@ -45,6 +51,33 @@ def load_whisper_model():
     except Exception as e:
         logger.error(f"Falha ao carregar o modelo Whisper: {e}")
         raise # Re-levanta a exceção para parar a aplicação se o modelo não carregar
+
+# --- AQUI VAI A FUNÇÃO send_telegram_message ---
+def send_telegram_message(message):
+    """
+    Envia uma mensagem para um chat do Telegram.
+    """
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning("[TELEGRAM] Credenciais não configuradas. Notificação não enviada.")
+        return False
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': TELEGRAM_CHAT_ID,
+        'text': message
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status() # Lança exceção para códigos de status HTTP de erro
+        logger.info(f"[TELEGRAM] Mensagem enviada com sucesso: {message[:50]}...") # Loga os primeiros 50 chars
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[TELEGRAM] Falha ao enviar mensagem: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Erro inesperado ao enviar mensagem: {e}")
+        return False
+# ----------------------------------------------
 
 def get_sorted_part_files(directory, base_filename):
     """
@@ -302,6 +335,7 @@ def worker_web(model):
                                              else:
                                                  logger.info(f"[WORKER-WEB] Transcrição já existe, pulando: {output_txt_path}")
 
+                                        # --- AQUI VAI A LÓGICA DE VERIFICAÇÃO DE CONCLUSÃO DO CURSO ---
                                         # 9. Após tentar transcrever (ou verificar que já existem),
                                         # verificar se é possível fazer o merge E LIMPAR
                                         # Só tenta merge se houve transcrição OU se é a primeira vez checando
@@ -314,7 +348,38 @@ def worker_web(model):
                                             )
                                             if merge_success:
                                                 logger.info(f"[WORKER-WEB] Processo completo (transcrição, merge e limpeza) para {base_name}.")
-                                                # TODO: Notificação Telegram pode ser chamada aqui
+                                                # --- NOVIDADE: Verificar conclusão do módulo e do curso ---
+                                                # Após o merge, verificamos se o diretório do módulo em INPUT_WEB_FOLDER está vazio
+                                                # Se estiver, significa que todas as aulas do módulo foram processadas.
+                                                try:
+                                                    # Verifica se o diretório do módulo está vazio
+                                                    if not any(os.scandir(module_path)):
+                                                        logger.info(f"[WORKER-WEB] Módulo '{module_item}' do curso '{course_folder}' concluído. Removendo pasta do módulo.")
+                                                        
+                                                        # Tenta remover o diretório do módulo (e quaisquer subdiretórios vazios)
+                                                        try:
+                                                            import shutil
+                                                            shutil.rmtree(module_path)
+                                                            logger.info(f"[CLEANUP] Pasta do módulo '{module_item}' removida com sucesso.")
+                                                            
+                                                            # Após remover o módulo, verificar se o curso está completo
+                                                            # Verifica se o diretório do curso em INPUT_WEB_FOLDER está vazio
+                                                            if not any(os.scandir(course_path)):
+                                                                logger.info(f"[WORKER-WEB] Curso '{course_folder}' concluído. Removendo pasta do curso.")
+                                                                # Tenta remover o diretório do curso
+                                                                try:
+                                                                    shutil.rmtree(course_path)
+                                                                    logger.info(f"[CLEANUP] Pasta do curso '{course_folder}' removida com sucesso.")
+                                                                except Exception as e:
+                                                                    logger.error(f"[CLEANUP] Erro ao remover pasta do curso '{course_path}': {e}")
+                                                                
+                                                        except Exception as e:
+                                                            logger.error(f"[CLEANUP] Erro ao remover pasta do módulo '{module_path}': {e}")
+                                                    else:
+                                                        logger.debug(f"[WORKER-WEB] Módulo '{module_item}' do curso '{course_folder}' ainda possui aulas não finalizadas.")
+                                                except Exception as e:
+                                                    logger.error(f"[WORKER-WEB] Erro durante verificação de conclusão do módulo '{module_item}' do curso '{course_folder}': {e}")
+                                                # -------------------------------------------------
                                             else:
                                                 logger.info(f"[WORKER-WEB] Merge não realizado para {base_name} (aguardando partes ou sequência incompleta).")
 
