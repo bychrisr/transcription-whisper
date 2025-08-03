@@ -17,7 +17,7 @@ import asyncio
 # -----------------------------
 
 # --- Configurações ---
-MODEL_NAME = "medium"  # Modelo especificado no PDF
+MODEL_NAME = "tiny"  # Modelo especificado no PDF
 DEVICE = "cpu"         # Como é ARM sem GPU, conforme PDF
 POLLING_INTERVAL = 300 # 5 minutos em segundos, conforme PDF
 INPUT_GDRIVE_FOLDER = "/input"
@@ -62,12 +62,18 @@ app = FastAPI(title="Whisper Transcription API", description="API para transcri�
 # Verifica se a pasta de arquivos estáticos existe antes de tentar servir
 if os.path.isdir(WEBUI_STATIC_FOLDER):
     logger.info(f"[WEBUI] Servindo arquivos estáticos da WebUI de: {WEBUI_STATIC_FOLDER}")
-    # Serve os arquivos estáticos (JS, CSS, imagens) de sub-rotas como /assets
-    app.mount("/assets", StaticFiles(directory=os.path.join(WEBUI_STATIC_FOLDER, "assets")), name="assets")
     
+    # Serve os arquivos estáticos (JS, CSS, imagens) de sub-rotas como /assets
+    # Verifica se a subpasta 'assets' existe antes de montar
+    assets_path = os.path.join(WEBUI_STATIC_FOLDER, "assets")
+    if os.path.isdir(assets_path):
+        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+        logger.info(f"[WEBUI] Pasta 'assets' montada em /assets")
+    else:
+         logger.warning(f"[WEBUI] Pasta 'assets' não encontrada em {assets_path}. Arquivos CSS/JS podem não carregar.")
+
     # Serve o index.html e outros HTMLs da raiz da pasta static
-    # Isso permite que /ui ou / redirecione para index.html
-    @app.get("/ui", response_class=HTMLResponse, include_in_schema=False) # include_in_schema=False oculta da documentação Swagger
+    @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
     async def read_ui_index():
         index_file_path = os.path.join(WEBUI_STATIC_FOLDER, "index.html")
         if os.path.exists(index_file_path):
@@ -78,18 +84,14 @@ if os.path.isdir(WEBUI_STATIC_FOLDER):
             logger.warning(f"[WEBUI] Arquivo index.html não encontrado em {index_file_path}")
             return HTMLResponse(content="<h1>WebUI não encontrada</h1><p>index.html não encontrado.</p>", status_code=404)
 
-    # Opcional: fazer com que a raiz (/) também sirva o index.html
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def read_root():
-        # Redireciona para /ui ou serve o index.html diretamente
-        # Vamos servir o index.html diretamente pela raiz também
         index_file_path = os.path.join(WEBUI_STATIC_FOLDER, "index.html")
         if os.path.exists(index_file_path):
             with open(index_file_path, "r", encoding="utf-8") as f:
                 content = f.read()
             return HTMLResponse(content=content)
         else:
-            # Se não encontrar index.html, mostra uma página padrão simples
             return HTMLResponse(content="<h1>API Whisper Transcription</h1><p>Acesse <a href='/ui'>/ui</a> para a interface web.</p><p>Acesse <a href='/docs'>/docs</a> para a documentação da API.</p>")
 
 else:
