@@ -3,7 +3,7 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copiar package files primeiro para aproveitar cache
+# Copiar package files
 COPY package*.json ./
 
 # Instalar dependências
@@ -20,9 +20,6 @@ FROM nginx:alpine
 
 # Copiar arquivos buildados
 COPY --from=build /app/dist /usr/share/nginx/html
-
-# Copiar configuração do nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
