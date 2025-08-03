@@ -6,8 +6,9 @@ import threading
 import logging
 import re # Para ordenar os arquivos por número da parte
 import requests # Para notificações Telegram (manter import para futuro)
+import shutil # Para salvar o arquivo uploadado
 # --- Importações do FastAPI ---
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -35,6 +36,7 @@ log_file_path = os.path.join(LOGS_FOLDER, "app.log")
 os.makedirs(LOGS_FOLDER, exist_ok=True) # Garante que a pasta de logs exista
 os.makedirs(OUTPUT_PARTS_FOLDER, exist_ok=True) # Garante que a pasta de saída de partes exista
 os.makedirs(OUTPUT_FOLDER, exist_ok=True) # Garante que a pasta de saída final exista
+os.makedirs(INPUT_WEB_FOLDER, exist_ok=True) # Garante que a pasta de input_web exista
 
 # Configura o logger
 logging.basicConfig(
@@ -65,7 +67,62 @@ async def get_status():
         "device": DEVICE
     }
 
-# TODO: Adicionar mais endpoints (upload, download, status detalhado) conforme necessário.
+@app.post("/api/upload", summary="Upload de Arquivo", description="Faz upload de um arquivo de áudio para ser processado.")
+async def upload_file(
+    file: UploadFile = File(..., description="O arquivo de áudio a ser enviado (ex: .mp3, .wav)."),
+    course_name: str = Form(..., description="Nome do curso (pasta de destino)."),
+    module_name: str = Form(..., description="Nome do módulo (subpasta de destino).")
+):
+    """
+    Endpoint para upload de arquivos de áudio.
+    Salva o arquivo em /input_web/{course_name}/{module_name}/.
+    """
+    try:
+        # 1. Validar o nome do arquivo (básico)
+        if not file.filename:
+            logger.warning("Upload falhou: Nome de arquivo vazio.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nome de arquivo inválido.")
+
+        # 2. Validar tipos de conteúdo suportados (opcional, mas recomendado)
+        # Exemplo: Permitir apenas áudio/mp3 e áudio/wav
+        # if file.content_type not in ["audio/mpeg", "audio/wav", "audio/mp3"]:
+        #     logger.warning(f"Upload falhou: Tipo de conteúdo não suportado {file.content_type} para {file.filename}")
+        #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Tipo de arquivo não suportado: {file.content_type}. Apenas MP3/WAV são aceitos.")
+
+        # 3. Criar o caminho completo da pasta de destino
+        course_path = os.path.join(INPUT_WEB_FOLDER, course_name)
+        module_path = os.path.join(course_path, module_name)
+        os.makedirs(module_path, exist_ok=True) # Cria pastas se não existirem
+
+        # 4. Definir o caminho completo do arquivo de destino
+        file_path = os.path.join(module_path, file.filename)
+
+        # 5. Salvar o arquivo (usando shutil.copyfileobj para eficiência com arquivos grandes)
+        logger.info(f"[UPLOAD] Iniciando upload de '{file.filename}' para '{file_path}'...")
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        logger.info(f"[UPLOAD] Arquivo '{file.filename}' salvo com sucesso em '{file_path}'.")
+
+        # 6. Retornar resposta de sucesso
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={
+                "message": "Arquivo enviado com sucesso.",
+                "filename": file.filename,
+                "course": course_name,
+                "module": module_name,
+                "saved_path": file_path
+            }
+        )
+
+    except HTTPException:
+        # Re-levanta exceções HTTP já tratadas
+        raise
+    except Exception as e:
+        logger.error(f"[UPLOAD] Erro durante o upload do arquivo '{file.filename if 'file' in locals() else 'desconhecido'}': {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar o upload.")
+
+# TODO: Adicionar mais endpoints (download, status detalhado) conforme necessário.
 # ----------------------------
 
 # --- Funções do Worker ---
