@@ -97,6 +97,7 @@ async def download_transcribed_file(filename: str):
         raise
     except Exception as e:
         logger.error(f"Erro ao baixar arquivo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
         telegram_service.send_error_notification(str(e), f"Download de {filename}")
         raise HTTPException(status_code=500, detail=str(e))
 

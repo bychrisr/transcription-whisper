@@ -36,4 +36,6 @@ RUN mkdir -p data/input data/input_web data/output data/output_parts data/logs
 
 EXPOSE 8000
 
+ENV PYTHONPATH=/app
+
 CMD ["/wait-for-it.sh", "postgres:5432", "redis:6379", "--", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

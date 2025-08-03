@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
@@ -10,7 +8,7 @@ services:
       - "6379:6379"
     command: redis-server --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -27,13 +25,13 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U whisper"]
+      test: [ "CMD-SHELL", "pg_isready -U whisper" ]
       interval: 30s
       timeout: 10s
       retries: 3
 
   backend:
-    build: 
+    build:
       context: ./backend
     restart: unless-stopped
     depends_on:
@@ -59,7 +57,7 @@ services:
       - "8001:8000"
 
   celery-worker:
-    build: 
+    build:
       context: ./backend
     restart: unless-stopped
     depends_on:
@@ -77,10 +75,10 @@ services:
       - REDIS_URL=redis://redis:6379
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-    command: ["celery", "-A", "app.main.celery", "worker", "--loglevel=info", "--hostname=worker1@%h"]
+    command: [ "celery", "-A", "app.main.celery", "worker", "--loglevel=info", "--hostname=worker1@%h" ]
 
   celery-beat:
-    build: 
+    build:
       context: ./backend
     restart: unless-stopped
     depends_on:
@@ -88,10 +86,10 @@ services:
       - celery-worker
     environment:
       - REDIS_URL=redis://redis:6379
-    command: ["celery", "-A", "app.main.celery", "beat", "--loglevel=info"]
+    command: [ "celery", "-A", "app.main.celery", "beat", "--loglevel=info" ]
 
   frontend:
-    build: 
+    build:
       context: ./frontend
     restart: unless-stopped
     depends_on:
