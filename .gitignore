@@ -32,3 +32,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+#Uploads diretos (/uploads) serve para enviar arquivos local para o servidor
+/uploads*
