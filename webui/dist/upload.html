@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload de Arquivos</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            background-color: #4CAF50;
+            color: white;
+            padding: 14px 20px;
+            margin: 8px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+            border: 1px solid #d6e9c6;
+        }
+
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+            border: 1px solid #ebccd1;
+        }
+
+        .info {
+            background-color: #d9edf7;
+            color: #31708f;
+            border: 1px solid #bce8f1;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h2>Upload de Arquivos para o Servidor</h2>
+        <p>Selecione um arquivo (ex: .zip) para fazer upload para a pasta <code>uploads</code>.</p>
+        <form id="uploadForm">
+            <label for="file">Escolher Arquivo:</label>
+            <input type="file" id="file" name="file" required>
+            <button type="submit">Enviar Arquivo</button>
+        </form>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('file');
+            const file = fileInput.files[0];
+            const statusDiv = document.getElementById('status');
+
+            if (!file) {
+                statusDiv.innerHTML = '<p class="error">Por favor, selecione um arquivo.</p>';
+                return;
+            }
+
+            // Mostrar mensagem de envio
+            statusDiv.className = 'info';
+            statusDiv.innerHTML = '<p>Enviando arquivo...</p>';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                // Substitua '/api/upload_server_file' pelo endpoint correto que você vai criar no app.py
+                const response = await fetch('/api/upload_server_file', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDiv.className = 'success';
+                    statusDiv.innerHTML = `<p>Upload bem-sucedido!</p><p><strong>Arquivo:</strong> ${data.filename}</p><p><strong>Mensagem:</strong> ${data.message}</p>`;
+                    fileInput.value = ''; // Limpar o input
+                } else {
+                    const errorData = await response.json();
+                    statusDiv.className = 'error';
+                    statusDiv.innerHTML = `<p>Erro no upload: ${errorData.detail || response.statusText}</p>`;
+                }
+            } catch (error) {
+                statusDiv.className = 'error';
+                statusDiv.innerHTML = `<p>Erro de rede: ${error.message}</p>`;
+            }
+        });
+    </script>
+
+</body>
+
+</html>

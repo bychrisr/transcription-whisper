@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
 import json
+import shutil
 
 # Whisper e Torch
 import whisper
@@ -563,6 +564,45 @@ async def get_performance_metrics():
     except Exception as e:
         logging.error(f"Erro ao obter métricas de performance: {e}")
         raise HTTPException(status_code=500, detail="Erro interno ao obter métricas de performance")
+
+
+# --- Novo Endpoint para Upload de Arquivos para o Servidor ---
+# Certifique-se de que a pasta 'uploads' existe
+UPLOADS_DIR = "uploads"
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+@app.post("/api/upload_server_file")
+async def upload_server_file(file: UploadFile = File(...)):
+    """
+    Endpoint para fazer upload de arquivos genéricos para a pasta 'uploads' do servidor.
+    Útil para subir o template da WebUI ou outros arquivos necessários.
+    """
+    try:
+        # Definir o caminho completo do arquivo
+        file_location = os.path.join(UPLOADS_DIR, file.filename)
+
+        # Abrir o arquivo no destino e escrever o conteúdo recebido
+        # Usando aiofiles para operações assíncronas
+        async with aiofiles.open(file_location, 'wb') as out_file:
+            content = await file.read() # Lê o conteúdo do arquivo enviado
+            await out_file.write(content) # Escreve o conteúdo no arquivo local
+
+        logging.info(f"Arquivo '{file.filename}' carregado com sucesso para '{file_location}'")
+        return JSONResponse(
+            content={
+                "message": f"Arquivo '{file.filename}' salvo com sucesso em '{UPLOADS_DIR}'.",
+                "filename": file.filename,
+                "path": file_location
+            },
+            status_code=201 # Created
+        )
+    except Exception as e:
+        logging.error(f"Erro ao fazer upload do arquivo para o servidor: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro interno ao salvar o arquivo: {str(e)}"
+        )
+# --- Fim do Novo Endpoint ---
 
 
 # --- Servir a WebUI ---
