@@ -6,6 +6,13 @@ import threading
 import logging
 import re # Para ordenar os arquivos por número da parte
 import requests # Para notificações Telegram (manter import para futuro)
+# --- Importações do FastAPI ---
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+import uvicorn
+import asyncio
+# -----------------------------
 
 # --- Configurações ---
 MODEL_NAME = "medium"  # Modelo especificado no PDF
@@ -16,13 +23,14 @@ INPUT_WEB_FOLDER = "/input_web"
 OUTPUT_PARTS_FOLDER = "/output_parts"
 OUTPUT_FOLDER = "/output"
 LOGS_FOLDER = "/logs"
+WEBUI_STATIC_FOLDER = "/app/webui" # Caminho padrão dentro do container
 
 # --- Credenciais do Telegram (carregadas do .env) ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 # --------------------
 
-# Configuração de Logging (centralizado, conforme PDF)
+# --- Configuração de Logging (centralizado, conforme PDF) ---
 log_file_path = os.path.join(LOGS_FOLDER, "app.log")
 os.makedirs(LOGS_FOLDER, exist_ok=True) # Garante que a pasta de logs exista
 os.makedirs(OUTPUT_PARTS_FOLDER, exist_ok=True) # Garante que a pasta de saída de partes exista
@@ -40,6 +48,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 # --------------------
 
+# --- Instância do FastAPI ---
+app = FastAPI(title="Whisper Transcription API", description="API para transcrição de áudios")
+# ----------------------------
+
+# --- Rotas da API (FastAPI Endpoints) ---
+@app.get("/api/status", summary="Status do Sistema", description="Retorna o status básico do sistema.")
+async def get_status():
+    """
+    Endpoint para verificar se a API está respondendo.
+    """
+    return {
+        "status": "online",
+        "message": "Sistema de transcrição Whisper está em execução.",
+        "model": MODEL_NAME,
+        "device": DEVICE
+    }
+
+# TODO: Adicionar mais endpoints (upload, download, status detalhado) conforme necessário.
+# ----------------------------
+
+# --- Funções do Worker ---
 def load_whisper_model():
     """Carrega o modelo Whisper uma vez na inicialização."""
     logger.info(f"Carregando modelo Whisper '{MODEL_NAME}' no dispositivo '{DEVICE}'...")
@@ -51,33 +80,6 @@ def load_whisper_model():
     except Exception as e:
         logger.error(f"Falha ao carregar o modelo Whisper: {e}")
         raise # Re-levanta a exceção para parar a aplicação se o modelo não carregar
-
-# --- AQUI VAI A FUNÇÃO send_telegram_message ---
-def send_telegram_message(message):
-    """
-    Envia uma mensagem para um chat do Telegram.
-    """
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        logger.warning("[TELEGRAM] Credenciais não configuradas. Notificação não enviada.")
-        return False
-
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        'chat_id': TELEGRAM_CHAT_ID,
-        'text': message
-    }
-    try:
-        response = requests.post(url, data=payload)
-        response.raise_for_status() # Lança exceção para códigos de status HTTP de erro
-        logger.info(f"[TELEGRAM] Mensagem enviada com sucesso: {message[:50]}...") # Loga os primeiros 50 chars
-        return True
-    except requests.exceptions.RequestException as e:
-        logger.error(f"[TELEGRAM] Falha ao enviar mensagem: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"[TELEGRAM] Erro inesperado ao enviar mensagem: {e}")
-        return False
-# ----------------------------------------------
 
 def get_sorted_part_files(directory, base_filename):
     """
@@ -396,6 +398,16 @@ def worker_web(model):
         except Exception as e:
              logger.error(f"[WORKER-WEB] Erro no worker: {e}", exc_info=True) # exc_info=True mostra o stacktrace
         time.sleep(POLLING_INTERVAL) # Espera o intervalo definido
+# ----------------------------
+
+def start_uvicorn():
+    """Função para iniciar o servidor Uvicorn em uma thread separada."""
+    logger.info("Iniciando servidor FastAPI/Uvicorn...")
+    # Configura o Uvicorn para rodar o app FastAPI
+    # host="0.0.0.0" permite acesso de fora do container
+    # port=8000 é a porta padrão exposta no Dockerfile
+    # log_level="info" para logs do servidor
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 
 def main():
     """Função principal que inicia o aplicativo."""
@@ -408,7 +420,13 @@ def main():
         logger.critical(f"Não foi possível iniciar a aplicação devido a um erro no carregamento do modelo: {e}")
         return
 
-    # 2. Inicia os workers em threads separadas
+    # 2. Inicia o servidor FastAPI/Uvicorn em uma thread separada
+    logger.info("Iniciando servidor web em thread...")
+    web_thread = threading.Thread(target=start_uvicorn, name="WebServer", daemon=True)
+    web_thread.start()
+    logger.info("Servidor web iniciado com sucesso.")
+
+    # 3. Inicia os workers em threads separadas
     logger.info("Iniciando workers em threads...")
     thread_gdrive = threading.Thread(target=worker_gdrive, args=(model,), name="Worker-GDrive", daemon=True)
     thread_web = threading.Thread(target=worker_web, args=(model,), name="Worker-Web", daemon=True)
@@ -417,9 +435,9 @@ def main():
     thread_web.start()
     logger.info("Workers iniciados com sucesso.")
 
-    # 3. Mantém a aplicação principal viva
+    # 4. Mantém a aplicação principal viva
     try:
-        logger.info("Aplicação principal em execução. Aguardando workers...")
+        logger.info("Aplicação principal em execução. Aguardando workers e servidor web...")
         # Threads daemon encerram quando o programa principal encerra.
         # Podemos usar um loop simples para manter o programa ativo.
         while True:
