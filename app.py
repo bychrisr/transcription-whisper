@@ -233,9 +233,18 @@ def check_and_merge_transcriptions(course_folder, module_item, base_name, module
                     except Exception as e:
                          logger.warning(f"[CLEANUP] Erro ao remover {mp3_file_path}: {e}")
 
-                # 8. (Opcional) Verificar e remover pastas vazias
-                # Isso pode ser feito aqui ou em uma função separada.
-                # Por enquanto, vamos apenas logar que a limpeza das partes foi feita.
+                # 8. Limpeza Avançada: Verificar e remover pastas vazias em /output_parts
+                try:
+                    # a. Tenta remover a pasta do módulo em /output_parts se ela estiver vazia
+                    if not any(os.scandir(module_output_parts_path)):
+                        os.rmdir(module_output_parts_path) # os.rmdir só remove diretórios vazios
+                        logger.info(f"[CLEANUP] Pasta vazia em output_parts removida: {module_output_parts_path}")
+                    else:
+                        logger.debug(f"[CLEANUP] Pasta em output_parts não está vazia, mantendo: {module_output_parts_path}")
+
+                except Exception as e:
+                    logger.warning(f"[CLEANUP] Erro durante verificação/remoção de pastas vazias em output_parts: {e}")
+
                 logger.info(f"[CLEANUP] Limpeza de arquivos temporários concluída para {base_name}.")
                 
                 return True
