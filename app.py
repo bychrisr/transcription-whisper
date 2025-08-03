@@ -5,6 +5,7 @@ import os
 import threading
 import logging
 import re # Para ordenar os arquivos por número da parte
+import requests # Para notificações Telegram
 
 # --- Configurações ---
 MODEL_NAME = "medium"  # Modelo especificado no PDF
@@ -15,6 +16,11 @@ INPUT_WEB_FOLDER = "/input_web"
 OUTPUT_PARTS_FOLDER = "/output_parts"
 OUTPUT_FOLDER = "/output"
 LOGS_FOLDER = "/logs"
+
+# --- Credenciais do Telegram (carregadas do .env) ---
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# --------------------
 
 # Configuração de Logging (centralizado, conforme PDF)
 log_file_path = os.path.join(LOGS_FOLDER, "app.log")
@@ -45,6 +51,33 @@ def load_whisper_model():
     except Exception as e:
         logger.error(f"Falha ao carregar o modelo Whisper: {e}")
         raise # Re-levanta a exceção para parar a aplicação se o modelo não carregar
+
+# --- AQUI VAI A FUNÇÃO send_telegram_message ---
+def send_telegram_message(message):
+    """
+    Envia uma mensagem para um chat do Telegram.
+    """
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning("[TELEGRAM] Credenciais não configuradas. Notificação não enviada.")
+        return False
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': TELEGRAM_CHAT_ID,
+        'text': message
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status() # Lança exceção para códigos de status HTTP de erro
+        logger.info(f"[TELEGRAM] Mensagem enviada com sucesso: {message[:50]}...") # Loga os primeiros 50 chars
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[TELEGRAM] Falha ao enviar mensagem: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"[TELEGRAM] Erro inesperado ao enviar mensagem: {e}")
+        return False
+# ----------------------------------------------
 
 def get_sorted_part_files(directory, base_filename):
     """
@@ -302,6 +335,7 @@ def worker_web(model):
                                              else:
                                                  logger.info(f"[WORKER-WEB] Transcrição já existe, pulando: {output_txt_path}")
 
+                                        # --- AQUI VAI A LÓGICA DE VERIFICAÇÃO DE CONCLUSÃO DO CURSO ---
                                         # 9. Após tentar transcrever (ou verificar que já existem),
                                         # verificar se é possível fazer o merge E LIMPAR
                                         # Só tenta merge se houve transcrição OU se é a primeira vez checando
@@ -314,7 +348,33 @@ def worker_web(model):
                                             )
                                             if merge_success:
                                                 logger.info(f"[WORKER-WEB] Processo completo (transcrição, merge e limpeza) para {base_name}.")
-                                                # TODO: Notificação Telegram pode ser chamada aqui
+                                                # --- NOVIDADE: Verificar conclusão do curso ---
+                                                # Após o merge, verificamos se o diretório do curso em INPUT_WEB_FOLDER está vazio
+                                                # Se estiver, significa que todos os módulos foram processados.
+                                                try:
+                                                    full_course_input_path = os.path.join(INPUT_WEB_FOLDER, course_folder)
+                                                    if os.path.exists(full_course_input_path):
+                                                        # Verifica se o diretório do curso está vazio
+                                                        if not any(os.scandir(full_course_input_path)):
+                                                            logger.info(f"[WORKER-WEB] Curso '{course_folder}' concluído. Enviando notificação e limpando pasta.")
+                                                            # Envia notificação final
+                                                            final_message = f"🎓 Curso finalizado: {course_folder}"
+                                                            send_telegram_message(final_message) # Esta função lida com credenciais ausentes
+                                                            
+                                                            # Tenta remover o diretório do curso (e quaisquer subdiretórios vazios)
+                                                            try:
+                                                                import shutil
+                                                                shutil.rmtree(full_course_input_path)
+                                                                logger.info(f"[CLEANUP] Pasta do curso '{course_folder}' removida com sucesso.")
+                                                            except Exception as e:
+                                                                logger.error(f"[CLEANUP] Erro ao remover pasta do curso '{full_course_input_path}': {e}")
+                                                        else:
+                                                            logger.debug(f"[WORKER-WEB] Curso '{course_folder}' ainda possui módulos não finalizados.")
+                                                    else:
+                                                        logger.warning(f"[WORKER-WEB] Pasta do curso '{course_folder}' não encontrada em {INPUT_WEB_FOLDER} para verificação final.")
+                                                except Exception as e:
+                                                    logger.error(f"[WORKER-WEB] Erro durante verificação de conclusão do curso '{course_folder}': {e}")
+                                                # -------------------------------------------------
                                             else:
                                                 logger.info(f"[WORKER-WEB] Merge não realizado para {base_name} (aguardando partes ou sequência incompleta).")
 
