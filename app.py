@@ -7,9 +7,9 @@ import logging
 import re # Para ordenar os arquivos por número da parte
 import requests # Para notificações Telegram (manter import para futuro)
 import shutil # Para salvar o arquivo uploadado
-from typing import List, Dict # Para tipagem dos retornos da API
+from typing import List, Dict, Optional # Para tipagem dos retornos da API
 # --- Importações do FastAPI ---
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, status
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, status, Body
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -17,7 +17,7 @@ import asyncio
 # -----------------------------
 
 # --- Importação do State Manager ---
-from state_manager import global_state_manager # <<< Adicione esta linha
+from state_manager import global_state_manager
 # ----------------------------------
 
 # --- Configurações ---
@@ -108,7 +108,6 @@ else:
 
 # --- Modelos Pydantic para retornos da API ---
 from pydantic import BaseModel
-from typing import List, Optional
 
 class TranscriptionFile(BaseModel):
     name: str
@@ -125,7 +124,7 @@ class TranscriptionCourse(BaseModel):
 # Modelo para o status detalhado
 class WorkerStatus(BaseModel):
     status: str
-    current_item: Optional[str] # <<< Usar Optional[str] ao invés de str | None
+    current_item: Optional[str] # Compatível com Python 3.9
     queue_size: int
     last_update: float
 
@@ -137,6 +136,18 @@ class DetailedSystemStatus(BaseModel):
     worker_gdrive: WorkerStatus
     worker_web: WorkerStatus
     metrics: SystemMetrics
+
+# Modelo para o request do Force Merge
+class ForceMergeRequest(BaseModel):
+    course_name: str
+    module_name: str
+    base_name: str # Nome base do áudio (ex: 'aula01' para 'aula01_part1.mp3')
+
+class ForceMergeResponse(BaseModel):
+    message: str
+    success: bool
+    merged_file_path: Optional[str] = None
+
 # ---------------------------------------------
 
 # --- Rotas da API (FastAPI Endpoints) ---
@@ -304,7 +315,92 @@ async def download_transcription(full_path: str):
         logger.error(f"[API] Erro ao fazer download do arquivo '{full_path}': {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar o download.")
 
-# TODO: Adicionar mais endpoints conforme necessário.
+@app.post("/api/merge/force", response_model=ForceMergeResponse, summary="Forçar Merge", description="Força o merge de partes de um áudio, mesmo que a sequência não esteja completa.")
+async def force_merge(request: ForceMergeRequest):
+    """
+    Endpoint para forçar o merge de partes de um áudio.
+    Útil para corrigir problemas ou quando partes estão faltando propositalmente.
+    """
+    try:
+        logger.info(f"[API] Solicitação de merge forçado para {request.course_name}/{request.module_name}/{request.base_name}")
+        
+        # 1. Determinar caminhos
+        # Caminho das partes transcritas (input para o merge)
+        module_output_parts_path = os.path.join(OUTPUT_PARTS_FOLDER, request.course_name, request.module_name)
+        # Caminho de saída do merge
+        module_output_path = os.path.join(OUTPUT_FOLDER, request.course_name, request.module_name)
+        
+        # 2. Verificar se a pasta de partes existe
+        if not os.path.exists(module_output_parts_path):
+            logger.warning(f"[API] Pasta de partes não encontrada: {module_output_parts_path}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Pasta de partes não encontrada para {request.course_name}/{request.module_name}")
+        
+        # 3. Encontrar partes transcritas (sem verificar sequência rigorosa)
+        # Reutiliza a função existente, mas vamos fazer uma variação mais flexível aqui
+        txt_files_to_merge = []
+        pattern = re.compile(rf"{re.escape(request.base_name)}_part(\d+)\.txt$")
+        if os.path.exists(module_output_parts_path):
+            for filename in os.listdir(module_output_parts_path):
+                match = pattern.match(filename)
+                if match:
+                    # Armazena o número da parte e o nome do arquivo
+                    part_num = int(match.group(1))
+                    txt_files_to_merge.append((part_num, filename))
+            # Ordena pela parte numerica
+            txt_files_to_merge.sort(key=lambda x: x[0])
+        
+        # 4. Verificar se há partes para merge
+        if not txt_files_to_merge:
+            logger.warning(f"[API] Nenhuma parte .txt encontrada para {request.base_name} em {module_output_parts_path}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Nenhuma parte .txt encontrada para '{request.base_name}'.")
+        
+        # 5. Realizar o merge (mesmo lógica da função original, mas sem verificação rigorosa)
+        merged_content = ""
+        txt_file_paths_used = []
+        
+        logger.info(f"[API] Iniciando merge forçado de {len(txt_files_to_merge)} partes para {request.base_name}...")
+        for _, txt_filename in txt_files_to_merge:
+            txt_file_path = os.path.join(module_output_parts_path, txt_filename)
+            try:
+                with open(txt_file_path, 'r', encoding='utf-8') as f:
+                    merged_content += f.read() + "\n\n" # Adiciona duas quebras de linha entre partes
+                txt_file_paths_used.append(txt_file_path)
+                logger.debug(f"[API] Conteúdo de {txt_filename} adicionado ao merge forçado.")
+            except Exception as e:
+                logger.error(f"[API] Erro ao ler {txt_file_path} para merge forçado: {e}")
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao ler parte '{txt_filename}' para merge.")
+        
+        # 6. Salvar o conteúdo mesclado
+        os.makedirs(module_output_path, exist_ok=True) # Garante que o diretório de saída exista
+        final_output_filename = f"{request.base_name}.txt"
+        final_output_path = os.path.join(module_output_path, final_output_filename)
+        
+        try:
+            with open(final_output_path, 'w', encoding='utf-8') as f:
+                f.write(merged_content.strip()) # .strip() remove possíveis quebras extras no final
+            logger.info(f"[API] Merge forçado concluído e salvo em: {final_output_path}")
+            
+            # 7. (Opcional) Limpar partes usadas? 
+            # Esta implementação NÃO apaga as partes originais para manter os arquivos de origem intactos.
+            # O worker principal é responsável pela limpeza automática após o merge bem-sucedido.
+            
+            return ForceMergeResponse(
+                message=f"Merge forçado concluído com sucesso para '{request.base_name}'.",
+                success=True,
+                merged_file_path=os.path.relpath(final_output_path, OUTPUT_FOLDER) # Caminho relativo para download
+            )
+            
+        except Exception as e:
+            logger.error(f"[API] Erro ao salvar o arquivo mergeado forçado {final_output_path}: {e}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro ao salvar o arquivo mergeado.")
+            
+    except HTTPException:
+        # Re-levanta exceções HTTP já tratadas
+        raise
+    except Exception as e:
+        logger.error(f"[API] Erro inesperado durante merge forçado para {request.course_name}/{request.module_name}/{request.base_name}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar o merge forçado.")
+
 # ----------------------------
 
 # --- Funções do Worker ---
@@ -553,38 +649,120 @@ def worker_web(model):
                     # 2. Verifica se é um diretório (representando um "curso" ou "upload")
                     if os.path.isdir(item_path):
                         items_to_process.append(item) # Conta o curso
-                        # ... (restante da lógica de processamento)
+                        course_folder = item
+                        course_path = item_path
+                        
+                        # Define o caminho de saída para este curso
+                        course_output_parts_path = os.path.join(OUTPUT_PARTS_FOLDER, course_folder)
+                        os.makedirs(course_output_parts_path, exist_ok=True)
+                        
+                        course_output_path = os.path.join(OUTPUT_FOLDER, course_folder)
+                        os.makedirs(course_output_path, exist_ok=True)
                         
                         # 3. Varre os subdiretórios (módulos)
-                        for module_item in os.listdir(item_path):
-                            module_path = os.path.join(item_path, module_item)
+                        for module_item in os.listdir(course_path):
+                            module_path = os.path.join(course_path, module_item)
                             
                             # 4. Verifica se é um diretório (representando um "módulo")
                             if os.path.isdir(module_path):
+                                logger.debug(f"[WORKER-WEB] Encontrado módulo: {module_item}")
+                                
+                                # Define o caminho de saída para este módulo
+                                module_output_parts_path = os.path.join(course_output_parts_path, module_item)
+                                os.makedirs(module_output_parts_path, exist_ok=True)
+                                
+                                module_output_path = os.path.join(course_output_path, module_item)
+                                os.makedirs(module_output_path, exist_ok=True)
                                 
                                 # 5. Varre os arquivos dentro do módulo
                                 for audio_file in os.listdir(module_path):
                                     # 6. Verifica se é um arquivo _part1.mp3 (começa o processo)
                                     if audio_file.endswith("_part1.mp3"):
-                                        # ... (restante da lógica)
+                                        # Extrai o nome base (ex: 'aula01' de 'aula01_part1.mp3')
+                                        base_name = audio_file.rsplit("_part1", 1)[0]
+                                        logger.info(f"[WORKER-WEB] Encontrado início de áudio: {base_name}")
                                         
-                                        # --- Atualiza status para 'processing' ---
-                                        global_state_manager.update_worker_status("worker_web", "processing", current_item=f"{item}/{module_item}/{base_name}")
-                                        # ---------------------------------------
+                                        # 7. Encontra todas as partes ordenadas
+                                        all_parts = get_sorted_part_files(module_path, base_name)
+                                        logger.debug(f"[WORKER-WEB] Partes encontradas para {base_name}: {all_parts}")
                                         
-                                        # ... (lógica de transcrição e merge)
-                                        
-                                        if merge_success:
-                                            logger.info(f"[WORKER-WEB] Processo completo (transcrição, merge e limpeza) para {base_name}.")
-                                            # Incrementa métrica
-                                            global_state_manager.increment_metric("total_files_processed")
-                                            # ... (restante da lógica de conclusão)
-                                            if not any(os.scandir(course_path)):
-                                                global_state_manager.increment_metric("total_courses_completed")
-                                                # ...
-                                        
-                                        # Após processar, volta para 'waiting'
-                                        global_state_manager.update_worker_status("worker_web", "waiting")
+                                        # 8. Transcreve cada parte (se ainda não transcrito)
+                                        transcription_happened = False # Flag para saber se alguma transcrição ocorreu
+                                        for part_file in all_parts:
+                                             part_file_path = os.path.join(module_path, part_file)
+                                             # Define o nome do arquivo de saída (.txt)
+                                             output_txt_filename = os.path.splitext(part_file)[0] + ".txt"
+                                             output_txt_path = os.path.join(module_output_parts_path, output_txt_filename)
+                                             
+                                             # Verifica se a transcrição já existe para evitar reprocessamento
+                                             if not os.path.exists(output_txt_path):
+                                                 # --- Atualiza status para 'processing' ---
+                                                 global_state_manager.update_worker_status("worker_web", "processing", current_item=f"{item}/{module_item}/{base_name}")
+                                                 # ---------------------------------------
+                                                 
+                                                 success = transcribe_part(model, part_file_path, output_txt_path)
+                                                 if success:
+                                                     logger.info(f"[WORKER-WEB] Transcrição concluída: {part_file}")
+                                                     transcription_happened = True
+                                                 else:
+                                                     logger.error(f"[WORKER-WEB] Falha na transcrição: {part_file}")
+                                             else:
+                                                 logger.info(f"[WORKER-WEB] Transcrição já existe, pulando: {output_txt_path}")
+
+                                        # --- AQUI VAI A LÓGICA DE VERIFICAÇÃO DE CONCLUSÃO DO CURSO ---
+                                        # 9. Após tentar transcrever (ou verificar que já existem),
+                                        # verificar se é possível fazer o merge E LIMPAR
+                                        # Só tenta merge se houve transcrição OU se é a primeira vez checando
+                                        # (para casos onde tudo já estava transcrito)
+                                        if transcription_happened or all_parts: # Simplificação: tenta sempre se encontrou partes
+                                            merge_success = check_and_merge_transcriptions(
+                                                course_folder, module_item, base_name,
+                                                module_path, # Passa o caminho do módulo de input também
+                                                module_output_parts_path, module_output_path
+                                            )
+                                            if merge_success:
+                                                logger.info(f"[WORKER-WEB] Processo completo (transcrição, merge e limpeza) para {base_name}.")
+                                                # Incrementa métrica
+                                                global_state_manager.increment_metric("total_files_processed")
+                                                # --- NOVIDADE: Verificar conclusão do módulo e do curso ---
+                                                # Após o merge, verificamos se o diretório do módulo em INPUT_WEB_FOLDER está vazio
+                                                # Se estiver, significa que todas as aulas do módulo foram processadas.
+                                                try:
+                                                    # Verifica se o diretório do módulo está vazio
+                                                    if not any(os.scandir(module_path)):
+                                                        logger.info(f"[WORKER-WEB] Módulo '{module_item}' do curso '{course_folder}' concluído. Removendo pasta do módulo.")
+                                                        
+                                                        # Tenta remover o diretório do módulo (e quaisquer subdiretórios vazios)
+                                                        try:
+                                                            import shutil
+                                                            shutil.rmtree(module_path)
+                                                            logger.info(f"[CLEANUP] Pasta do módulo '{module_item}' removida com sucesso.")
+                                                            
+                                                            # Após remover o módulo, verificar se o curso está completo
+                                                            # Verifica se o diretório do curso em INPUT_WEB_FOLDER está vazio
+                                                            if not any(os.scandir(course_path)):
+                                                                logger.info(f"[WORKER-WEB] Curso '{course_folder}' concluído. Removendo pasta do curso.")
+                                                                # Tenta remover o diretório do curso
+                                                                try:
+                                                                    shutil.rmtree(course_path)
+                                                                    logger.info(f"[CLEANUP] Pasta do curso '{course_folder}' removida com sucesso.")
+                                                                    global_state_manager.increment_metric("total_courses_completed")
+                                                                except Exception as e:
+                                                                    logger.error(f"[CLEANUP] Erro ao remover pasta do curso '{course_path}': {e}")
+                                                                
+                                                        except Exception as e:
+                                                            logger.error(f"[CLEANUP] Erro ao remover pasta do módulo '{module_path}': {e}")
+                                                    else:
+                                                        logger.debug(f"[WORKER-WEB] Módulo '{module_item}' do curso '{course_folder}' ainda possui aulas não finalizadas.")
+                                                except Exception as e:
+                                                    logger.error(f"[WORKER-WEB] Erro durante verificação de conclusão do módulo '{module_item}' do curso '{course_folder}': {e}")
+                                                # -------------------------------------------------
+                                                # Após processar, volta para 'waiting'
+                                                global_state_manager.update_worker_status("worker_web", "waiting")
+                                            else:
+                                                logger.info(f"[WORKER-WEB] Merge não realizado para {base_name} (aguardando partes ou sequência incompleta).")
+                                                # Após processar, volta para 'waiting'
+                                                global_state_manager.update_worker_status("worker_web", "waiting")
                                         
             # Atualiza o tamanho da fila após a varredura
             global_state_manager.update_worker_status("worker_web", "waiting", queue_size=len(items_to_process))
