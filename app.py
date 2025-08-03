@@ -20,6 +20,7 @@ LOGS_FOLDER = "/logs"
 log_file_path = os.path.join(LOGS_FOLDER, "app.log")
 os.makedirs(LOGS_FOLDER, exist_ok=True) # Garante que a pasta de logs exista
 os.makedirs(OUTPUT_PARTS_FOLDER, exist_ok=True) # Garante que a pasta de saída de partes exista
+os.makedirs(OUTPUT_FOLDER, exist_ok=True) # Garante que a pasta de saída final exista
 
 # Configura o logger
 logging.basicConfig(
@@ -50,8 +51,10 @@ def get_sorted_part_files(directory, base_filename):
     Encontra todos os arquivos _partN.mp3 para um base_filename em um diretório
     e os retorna ordenados pelo número da parte.
     Exemplo: Para 'aula01', encontra 'aula01_part1.mp3', 'aula01_part2.mp3'...
+    Retorna uma lista ordenada de nomes de arquivos (ex: ['aula01_part1.mp3', 'aula01_part2.mp3'])
     """
     part_files = []
+    # Pattern para encontrar _part seguido de números e terminando em .mp3
     pattern = re.compile(rf"{re.escape(base_filename)}_part(\d+)\.mp3$")
     if os.path.exists(directory):
         for filename in os.listdir(directory):
@@ -63,6 +66,49 @@ def get_sorted_part_files(directory, base_filename):
         part_files.sort(key=lambda x: x[0])
     # Retorna apenas os nomes dos arquivos, na ordem correta
     return [f for _, f in part_files]
+
+def get_sorted_transcribed_part_files(directory, base_filename):
+    """
+    Encontra todos os arquivos _partN.txt para um base_filename em um diretório
+    e os retorna ordenados pelo número da parte.
+    Exemplo: Para 'aula01', encontra 'aula01_part1.txt', 'aula01_part2.txt'...
+    Retorna uma lista ordenada de nomes de arquivos (ex: ['aula01_part1.txt', 'aula01_part2.txt'])
+    """
+    part_files = []
+    # Pattern para encontrar _part seguido de números e terminando em .txt
+    pattern = re.compile(rf"{re.escape(base_filename)}_part(\d+)\.txt$")
+    if os.path.exists(directory):
+        for filename in os.listdir(directory):
+            match = pattern.match(filename)
+            if match:
+                part_num = int(match.group(1))
+                part_files.append((part_num, filename))
+        # Ordena pela parte numerica
+        part_files.sort(key=lambda x: x[0])
+    # Retorna apenas os nomes dos arquivos, na ordem correta
+    return [f for _, f in part_files]
+
+def are_all_parts_present(sorted_mp3_parts, sorted_txt_parts):
+    """
+    Verifica se todos os arquivos .txt correspondentes aos .mp3 estão presentes,
+    sem pular números.
+    Ex: ['a_part1.mp3', 'a_part2.mp3'] e ['a_part1.txt', 'a_part2.txt'] -> True
+    Ex: ['a_part1.mp3', 'a_part2.mp3'] e ['a_part1.txt'] -> False (falta part2)
+    Ex: ['a_part1.mp3', 'a_part3.mp3'] e ['a_part1.txt', 'a_part3.txt'] -> False (pulou part2)
+    """
+    # Extrai os números das partes dos arquivos .mp3
+    mp3_part_numbers = [int(re.search(r'_part(\d+)\.mp3$', f).group(1)) for f in sorted_mp3_parts]
+    
+    # Extrai os números das partes dos arquivos .txt
+    txt_part_numbers = [int(re.search(r'_part(\d+)\.txt$', f).group(1)) for f in sorted_txt_parts]
+
+    # Verifica se a sequência de números de .mp3 é contínua (1, 2, 3, ...)
+    if not mp3_part_numbers or mp3_part_numbers != list(range(1, len(mp3_part_numbers) + 1)):
+        logger.warning(f"[MERGE] Sequência de partes .mp3 não é contínua ou vazia para {sorted_mp3_parts[0] if sorted_mp3_parts else 'N/A'}.")
+        return False
+
+    # Verifica se os números de .txt são exatamente os mesmos que os de .mp3
+    return mp3_part_numbers == txt_part_numbers
 
 def transcribe_part(model, mp3_file_path, output_txt_path):
     """
@@ -76,7 +122,8 @@ def transcribe_part(model, mp3_file_path, output_txt_path):
         # O PDF pede transcrição "limpa" (sem timestamps)
         # `verbose=False` desativa o log do progresso do Whisper
         # `fp16=False` força o uso de precisão 32-bit float (mais compatível com CPU)
-        result = model.transcribe(mp3_file_path, verbose=False, fp16=False, language="pt") # Assumindo idioma português. Pode ser dinâmico.
+        # TODO: O idioma pode ser dinâmico ou detectado. Aqui está fixo como exemplo.
+        result = model.transcribe(mp3_file_path, verbose=False, fp16=False, language="pt") # Assumindo idioma português.
         
         # 2. Extrair o texto da transcrição
         transcription_text = result["text"]
@@ -91,6 +138,67 @@ def transcribe_part(model, mp3_file_path, output_txt_path):
         logger.error(f"[TRANSCRIBE] Erro ao transcrever {mp3_file_path}: {e}", exc_info=True)
         return False
 
+def check_and_merge_transcriptions(course_folder, module_item, base_name, module_output_parts_path, module_output_path):
+    """
+    Verifica se todas as partes de uma transcrição estão presentes e as mescla.
+    """
+    try:
+        logger.info(f"[MERGE] Verificando se é possível fazer merge para: {base_name}")
+        
+        # 1. Encontrar todas as partes .mp3 originais (para verificar sequência)
+        all_mp3_parts = get_sorted_part_files(module_output_parts_path.replace("/output_parts/", "/input_web/"), base_name)
+        
+        # 2. Encontrar todas as partes .txt transcritoas
+        all_txt_parts = get_sorted_transcribed_part_files(module_output_parts_path, base_name)
+        
+        # 3. Verificar se todas as partes estão presentes
+        if are_all_parts_present(all_mp3_parts, all_txt_parts):
+            logger.info(f"[MERGE] Todas as partes presentes para {base_name}. Iniciando merge...")
+            
+            merged_content = ""
+            txt_files_to_delete = []
+            
+            # 4. Ler o conteúdo de cada parte .txt em ordem e concatenar
+            for txt_file in all_txt_parts:
+                txt_file_path = os.path.join(module_output_parts_path, txt_file)
+                try:
+                    with open(txt_file_path, 'r', encoding='utf-8') as f:
+                        merged_content += f.read() + "\n\n" # Adiciona duas quebras de linha entre partes
+                    txt_files_to_delete.append(txt_file_path)
+                    logger.debug(f"[MERGE] Conteúdo de {txt_file} adicionado ao merge.")
+                except Exception as e:
+                    logger.error(f"[MERGE] Erro ao ler {txt_file_path} para merge: {e}")
+                    return False # Se falhar em ler uma parte, aborta o merge
+
+            # 5. Salvar o conteúdo mesclado em um único arquivo .txt na pasta /output
+            final_output_filename = f"{base_name}.txt"
+            final_output_path = os.path.join(module_output_path, final_output_filename)
+            
+            try:
+                with open(final_output_path, 'w', encoding='utf-8') as f:
+                    f.write(merged_content.strip()) # .strip() remove possíveis quebras extras no final
+                logger.info(f"[MERGE] Merge concluído e salvo em: {final_output_path}")
+                
+                # 6. (Opcional) Apagar os arquivos .txt de partes após o merge bem-sucedido
+                # TODO: Implementar limpeza de arquivos temporários (.txt de partes e .mp3 originais)
+                # Isso pode ser feito aqui ou em uma função separada de limpeza.
+                # Por enquanto, vamos apenas logar.
+                # for txt_file_path in txt_files_to_delete:
+                #     os.remove(txt_file_path)
+                #     logger.debug(f"[MERGE] Arquivo temporário removido: {txt_file_path}")
+                # TODO: Apagar os arquivos .mp3 originais também.
+                
+                return True
+            except Exception as e:
+                logger.error(f"[MERGE] Erro ao salvar o arquivo mergeado {final_output_path}: {e}")
+                return False
+        else:
+            logger.info(f"[MERGE] Nem todas as partes estão prontas ou a sequência está incompleta para {base_name}. Aguardando...")
+            return False
+    except Exception as e:
+        logger.error(f"[MERGE] Erro durante a verificação de merge para {base_name}: {e}", exc_info=True)
+        return False
+
 def worker_gdrive(model):
     """Worker para monitorar e processar arquivos do Google Drive."""
     logger.info(f"[WORKER-GDRIVE] Iniciado. Monitorando pasta: {INPUT_GDRIVE_FOLDER}")
@@ -98,8 +206,8 @@ def worker_gdrive(model):
         try:
             # Lógica de processamento do worker GDrive vai aqui
             logger.info("[WORKER-GDRIVE] Verificando arquivos para processamento...")
-            # TODO: Implementar lógica real de varredura e transcrição
-            # Esta é a próxima etapa após worker_web funcionar completamente
+            # TODO: Implementar lógica real de varredura e transcrição completa (similar ao worker_web)
+            # Esta é a próxima grande etapa após worker_web estar 100%
             time.sleep(2) # Simulação de trabalho
             logger.debug("[WORKER-GDRIVE] Verificação concluída.")
         except Exception as e:
@@ -128,6 +236,9 @@ def worker_web(model):
                         course_output_parts_path = os.path.join(OUTPUT_PARTS_FOLDER, course_folder)
                         os.makedirs(course_output_parts_path, exist_ok=True)
                         
+                        course_output_path = os.path.join(OUTPUT_FOLDER, course_folder)
+                        os.makedirs(course_output_path, exist_ok=True)
+                        
                         # 3. Varre os subdiretórios (módulos)
                         for module_item in os.listdir(course_path):
                             module_path = os.path.join(course_path, module_item)
@@ -139,6 +250,9 @@ def worker_web(model):
                                 # Define o caminho de saída para este módulo
                                 module_output_parts_path = os.path.join(course_output_parts_path, module_item)
                                 os.makedirs(module_output_parts_path, exist_ok=True)
+                                
+                                module_output_path = os.path.join(course_output_path, module_item)
+                                os.makedirs(module_output_path, exist_ok=True)
                                 
                                 # 5. Varre os arquivos dentro do módulo
                                 for audio_file in os.listdir(module_path):
@@ -152,11 +266,11 @@ def worker_web(model):
                                         all_parts = get_sorted_part_files(module_path, base_name)
                                         logger.debug(f"[WORKER-WEB] Partes encontradas para {base_name}: {all_parts}")
                                         
-                                        # 8. Transcreve cada parte
+                                        # 8. Transcreve cada parte (se ainda não transcrito)
+                                        transcription_happened = False # Flag para saber se alguma transcrição ocorreu
                                         for part_file in all_parts:
                                              part_file_path = os.path.join(module_path, part_file)
                                              # Define o nome do arquivo de saída (.txt)
-                                             # Ex: 'aula01_part1.mp3' -> 'aula01_part1.txt'
                                              output_txt_filename = os.path.splitext(part_file)[0] + ".txt"
                                              output_txt_path = os.path.join(module_output_parts_path, output_txt_filename)
                                              
@@ -165,12 +279,26 @@ def worker_web(model):
                                                  success = transcribe_part(model, part_file_path, output_txt_path)
                                                  if success:
                                                      logger.info(f"[WORKER-WEB] Transcrição concluída: {part_file}")
+                                                     transcription_happened = True
                                                  else:
                                                      logger.error(f"[WORKER-WEB] Falha na transcrição: {part_file}")
                                              else:
                                                  logger.info(f"[WORKER-WEB] Transcrição já existe, pulando: {output_txt_path}")
 
-                                        # TODO: Lógica de merge e limpeza virá aqui também
+                                        # 9. Após tentar transcrever (ou verificar que já existem),
+                                        # verificar se é possível fazer o merge
+                                        # Só tenta merge se houve transcrição OU se é a primeira vez checando
+                                        # (para casos onde tudo já estava transcrito)
+                                        if transcription_happened or all_parts: # Simplificação: tenta sempre se encontrou partes
+                                            merge_success = check_and_merge_transcriptions(
+                                                course_folder, module_item, base_name,
+                                                module_output_parts_path, module_output_path
+                                            )
+                                            if merge_success:
+                                                logger.info(f"[WORKER-WEB] Processo completo para {base_name}.")
+                                                # TODO: Notificação Telegram pode ser chamada aqui
+                                            else:
+                                                logger.info(f"[WORKER-WEB] Merge não realizado para {base_name} (aguardando partes ou sequência incompleta).")
 
             logger.debug("[WORKER-WEB] Verificação concluída.")
         except Exception as e:
