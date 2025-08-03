@@ -19,6 +19,7 @@ LOGS_FOLDER = "/logs"
 # Configuração de Logging (centralizado, conforme PDF)
 log_file_path = os.path.join(LOGS_FOLDER, "app.log")
 os.makedirs(LOGS_FOLDER, exist_ok=True) # Garante que a pasta de logs exista
+os.makedirs(OUTPUT_PARTS_FOLDER, exist_ok=True) # Garante que a pasta de saída de partes exista
 
 # Configura o logger
 logging.basicConfig(
@@ -63,6 +64,33 @@ def get_sorted_part_files(directory, base_filename):
     # Retorna apenas os nomes dos arquivos, na ordem correta
     return [f for _, f in part_files]
 
+def transcribe_part(model, mp3_file_path, output_txt_path):
+    """
+    Transcreve um único arquivo .mp3 usando o modelo Whisper
+    e salva o resultado em um arquivo .txt.
+    """
+    try:
+        logger.info(f"[TRANSCRIBE] Iniciando transcrição de: {mp3_file_path}")
+        
+        # 1. Transcrever o áudio
+        # O PDF pede transcrição "limpa" (sem timestamps)
+        # `verbose=False` desativa o log do progresso do Whisper
+        # `fp16=False` força o uso de precisão 32-bit float (mais compatível com CPU)
+        result = model.transcribe(mp3_file_path, verbose=False, fp16=False, language="pt") # Assumindo idioma português. Pode ser dinâmico.
+        
+        # 2. Extrair o texto da transcrição
+        transcription_text = result["text"]
+        
+        # 3. Salvar o texto em um arquivo .txt
+        with open(output_txt_path, 'w', encoding='utf-8') as f:
+            f.write(transcription_text)
+        
+        logger.info(f"[TRANSCRIBE] Transcrição salva em: {output_txt_path}")
+        return True
+    except Exception as e:
+        logger.error(f"[TRANSCRIBE] Erro ao transcrever {mp3_file_path}: {e}", exc_info=True)
+        return False
+
 def worker_gdrive(model):
     """Worker para monitorar e processar arquivos do Google Drive."""
     logger.info(f"[WORKER-GDRIVE] Iniciado. Monitorando pasta: {INPUT_GDRIVE_FOLDER}")
@@ -71,7 +99,7 @@ def worker_gdrive(model):
             # Lógica de processamento do worker GDrive vai aqui
             logger.info("[WORKER-GDRIVE] Verificando arquivos para processamento...")
             # TODO: Implementar lógica real de varredura e transcrição
-            # Esta é a próxima etapa após worker_web funcionar
+            # Esta é a próxima etapa após worker_web funcionar completamente
             time.sleep(2) # Simulação de trabalho
             logger.debug("[WORKER-GDRIVE] Verificação concluída.")
         except Exception as e:
@@ -96,6 +124,10 @@ def worker_web(model):
                         course_folder = item
                         course_path = item_path
                         
+                        # Define o caminho de saída para este curso
+                        course_output_parts_path = os.path.join(OUTPUT_PARTS_FOLDER, course_folder)
+                        os.makedirs(course_output_parts_path, exist_ok=True)
+                        
                         # 3. Varre os subdiretórios (módulos)
                         for module_item in os.listdir(course_path):
                             module_path = os.path.join(course_path, module_item)
@@ -103,6 +135,10 @@ def worker_web(model):
                             # 4. Verifica se é um diretório (representando um "módulo")
                             if os.path.isdir(module_path):
                                 logger.debug(f"[WORKER-WEB] Encontrado módulo: {module_item}")
+                                
+                                # Define o caminho de saída para este módulo
+                                module_output_parts_path = os.path.join(course_output_parts_path, module_item)
+                                os.makedirs(module_output_parts_path, exist_ok=True)
                                 
                                 # 5. Varre os arquivos dentro do módulo
                                 for audio_file in os.listdir(module_path):
@@ -112,55 +148,4 @@ def worker_web(model):
                                         base_name = audio_file.rsplit("_part1", 1)[0]
                                         logger.info(f"[WORKER-WEB] Encontrado início de áudio: {base_name}")
                                         
-                                        # 7. Encontra todas as partes ordenadas
-                                        all_parts = get_sorted_part_files(module_path, base_name)
-                                        logger.debug(f"[WORKER-WEB] Partes encontradas para {base_name}: {all_parts}")
-                                        
-                                        # TODO: Aqui vem a lógica de transcrever cada parte
-                                        # Por enquanto, só loga
-                                        for part_file in all_parts:
-                                             logger.info(f"[WORKER-WEB] Pronto para transcrever: {part_file}")
-                                             # Simula um pouco de processamento
-                                             time.sleep(1)
-                                        
-                                        # TODO: Lógica de merge e limpeza virá aqui também
-
-            logger.debug("[WORKER-WEB] Verificação concluída.")
-        except Exception as e:
-             logger.error(f"[WORKER-WEB] Erro no worker: {e}", exc_info=True) # exc_info=True mostra o stacktrace
-        time.sleep(POLLING_INTERVAL) # Espera o intervalo definido
-
-def main():
-    """Função principal que inicia o aplicativo."""
-    logger.info("Iniciando aplicação Whisper Transcription...")
-    
-    # 1. Carrega o modelo Whisper (uma única vez)
-    try:
-        model = load_whisper_model()
-    except Exception as e:
-        logger.critical(f"Não foi possível iniciar a aplicação devido a um erro no carregamento do modelo: {e}")
-        return
-
-    # 2. Inicia os workers em threads separadas
-    logger.info("Iniciando workers em threads...")
-    thread_gdrive = threading.Thread(target=worker_gdrive, args=(model,), name="Worker-GDrive", daemon=True)
-    thread_web = threading.Thread(target=worker_web, args=(model,), name="Worker-Web", daemon=True)
-    
-    thread_gdrive.start()
-    thread_web.start()
-    logger.info("Workers iniciados com sucesso.")
-
-    # 3. Mantém a aplicação principal viva
-    try:
-        logger.info("Aplicação principal em execução. Aguardando workers...")
-        # Threads daemon encerram quando o programa principal encerra.
-        # Podemos usar um loop simples para manter o programa ativo.
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Recebido sinal de interrupção. Finalizando aplicação...")
-    finally:
-        logger.info("Aplicação encerrada.")
-
-if __name__ == "__main__":
-    main()
+                                        # 7. Encontra todas
