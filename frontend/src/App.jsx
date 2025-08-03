@@ -1,32 +1,22 @@
 import React from 'react'
-import { Container, Navbar, Nav } from 'react-bootstrap'
-import { Routes, Route, Link, BrowserRouter } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import UploadPage from './pages/UploadPage'
-import TranscriptionsPage from './pages/TranscriptionsPage'
-import './App.css'
+import TranscriptionsPage from './components/TranscriptionsPage'
+import './index.css'
 
 function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <div className="App">
-        <Navbar bg="dark" variant="dark" expand="lg">
-          <Container>
-            <Navbar.Brand as={Link} to="/">🎙️ Whisper Transcription</Navbar.Brand>
-            <Nav className="me-auto">
-              <Nav.Link as={Link} to="/">Upload</Nav.Link>
-              <Nav.Link as={Link} to="/transcriptions">Transcrições</Nav.Link>
-            </Nav>
-          </Container>
-        </Navbar>
-
-        <Container className="mt-4">
-          <Routes>
-            <Route path="/" element={<UploadPage />} />
-            <Route path="/transcriptions" element={<TranscriptionsPage />} />
-          </Routes>
-        </Container>
+        <header className="App-header">
+          <h1>Whisper Transcription</h1>
+        </header>
+        <Routes>
+          <Route path="/" element={<UploadPage />} />
+          <Route path="/transcriptions" element={<TranscriptionsPage />} />
+        </Routes>
       </div>
-    </BrowserRouter>
+    </Router>
   )
 }
 
