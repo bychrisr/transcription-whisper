@@ -5,23 +5,385 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Whisper Transcription UI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1,
+        h2 {
+            color: #333;
+        }
+
+        .status-card {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #f9f9f9;
+        }
+
+        .status-item {
+            margin-bottom: 10px;
+        }
+
+        .status-label {
+            font-weight: bold;
+            display: inline-block;
+            width: 150px;
+        }
+
+        .status-value {
+            display: inline-block;
+        }
+
+        .status-ok {
+            color: green;
+        }
+
+        .status-waiting {
+            color: orange;
+        }
+
+        .status-processing {
+            color: blue;
+        }
+
+        .status-error {
+            color: red;
+        }
+
+        .metrics-card {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #e8f4fd;
+        }
+
+        .transcriptions-card {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: #fff8e1;
+        }
+
+        .course {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-left: 3px solid #007bff;
+            background-color: #ffffff;
+        }
+
+        .module {
+            margin-top: 10px;
+            padding: 8px;
+            border-left: 2px solid #6c757d;
+            background-color: #f8f9fa;
+        }
+
+        .file {
+            margin-top: 5px;
+            padding: 5px;
+            background-color: #e9ecef;
+        }
+
+        a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #api-response {
+            white-space: pre-wrap;
+            /* Para mostrar JSON formatado */
+            background-color: #f4f4f4;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
 </head>
 
 <body>
-    <h1>Bem-vindo à WebUI do Whisper Transcription!</h1>
-    <p>A API está funcionando. Esta é a interface web.</p>
-    <p>Status da API: <span id="api-status">Carregando...</span></p>
+    <div class="container">
+        <h1>Whisper Transcription UI</h1>
+        <p>Interface web para monitorar e gerenciar o sistema de transcrição.</p>
+
+        <div class="status-card">
+            <h2>Status do Sistema</h2>
+            <div class="status-item">
+                <span class="status-label">Status API:</span>
+                <span class="status-value" id="api-status">Carregando...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Modelo:</span>
+                <span class="status-value" id="model-info">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Dispositivo:</span>
+                <span class="status-value" id="device-info">-</span>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <h2>Status Detalhado dos Workers</h2>
+            <div class="status-item">
+                <span class="status-label">Worker GDrive:</span>
+                <span class="status-value" id="gdrive-status">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Worker Web:</span>
+                <span class="status-value" id="web-status">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Itens na Fila (GDrive):</span>
+                <span class="status-value" id="gdrive-queue">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Itens na Fila (Web):</span>
+                <span class="status-value" id="web-queue">-</span>
+            </div>
+        </div>
+
+        <div class="metrics-card">
+            <h2>Métricas</h2>
+            <div class="status-item">
+                <span class="status-label">Arquivos Processados:</span>
+                <span class="status-value" id="files-processed">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Cursos Completos:</span>
+                <span class="status-value" id="courses-completed">-</span>
+            </div>
+        </div>
+
+        <div class="transcriptions-card">
+            <h2>Transcrições Disponíveis</h2>
+            <button id="refresh-transcriptions">Atualizar Lista</button>
+            <div id="transcriptions-list">
+                <!-- Lista de transcrições será inserida aqui -->
+                Carregando...
+            </div>
+        </div>
+
+        <div class="status-card">
+            <h2>Resposta Bruta da API (para depuração)</h2>
+            <button id="fetch-status-btn">Buscar Status Detalhado</button>
+            <button id="fetch-transcriptions-btn">Buscar Transcrições</button>
+            <pre id="api-response">Clique em um botão acima para ver a resposta da API.</pre>
+        </div>
+    </div>
+
     <script>
-        // Exemplo simples de chamada à API
-        fetch('/api/status')
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('api-status').innerText = data.status + " - " + data.message;
-            })
-            .catch(error => {
-                console.error('Erro ao buscar status:', error);
-                document.getElementById('api-status').innerText = "Erro ao conectar à API.";
-            });
+        const API_BASE_URL = '/api'; // A API está na mesma origem
+
+        // Função para buscar e exibir o status detalhado
+        async function fetchAndDisplayDetailedStatus() {
+            const statusElement = document.getElementById('api-status');
+            const modelElement = document.getElementById('model-info');
+            const deviceElement = document.getElementById('device-info');
+            const gdriveStatusElement = document.getElementById('gdrive-status');
+            const webStatusElement = document.getElementById('web-status');
+            const gdriveQueueElement = document.getElementById('gdrive-queue');
+            const webQueueElement = document.getElementById('web-queue');
+            const filesProcessedElement = document.getElementById('files-processed');
+            const coursesCompletedElement = document.getElementById('courses-completed');
+            const responseElement = document.getElementById('api-response');
+
+            try {
+                statusElement.textContent = 'Buscando...';
+                statusElement.className = 'status-value status-waiting';
+
+                const response = await fetch(`${API_BASE_URL}/status/detailed`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // Atualiza elementos com os dados da API
+                statusElement.textContent = 'Online';
+                statusElement.className = 'status-value status-ok';
+
+                modelElement.textContent = data.metrics ? `Modelo carregado (${new Date().toLocaleTimeString()})` : 'Não carregado';
+                deviceElement.textContent = 'CPU'; // Assumindo CPU, pode ser dinâmico no futuro
+
+                // Status dos Workers
+                const gdriveStatus = data.worker_gdrive?.status || 'Desconhecido';
+                const webStatus = data.worker_web?.status || 'Desconhecido';
+
+                gdriveStatusElement.textContent = gdriveStatus;
+                gdriveStatusElement.className = `status-value status-${gdriveStatus.toLowerCase()}`;
+
+                webStatusElement.textContent = webStatus;
+                webStatusElement.className = `status-value status-${webStatus.toLowerCase()}`;
+
+                gdriveQueueElement.textContent = data.worker_gdrive?.queue_size ?? '-';
+                webQueueElement.textContent = data.worker_web?.queue_size ?? '-';
+
+                // Métricas
+                filesProcessedElement.textContent = data.metrics?.total_files_processed ?? '-';
+                coursesCompletedElement.textContent = data.metrics?.total_courses_completed ?? '-';
+
+                // Para depuração
+                responseElement.textContent = JSON.stringify(data, null, 2);
+
+            } catch (error) {
+                console.error('Erro ao buscar status detalhado:', error);
+                statusElement.textContent = `Erro: ${error.message}`;
+                statusElement.className = 'status-value status-error';
+                responseElement.textContent = `Erro ao buscar status: ${error.message}`;
+            }
+        }
+
+        // Função para buscar e exibir a lista de transcrições
+        async function fetchAndDisplayTranscriptions() {
+            const listElement = document.getElementById('transcriptions-list');
+            const responseElement = document.getElementById('api-response');
+
+            try {
+                listElement.innerHTML = 'Buscando lista de transcrições...';
+
+                const response = await fetch(`${API_BASE_URL}/transcriptions`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const courses = await response.json();
+
+                // Para depuração
+                responseElement.textContent = JSON.stringify(courses, null, 2);
+
+                if (!Array.isArray(courses) || courses.length === 0) {
+                    listElement.innerHTML = '<p>Nenhuma transcrição disponível.</p>';
+                    return;
+                }
+
+                let htmlContent = '<ul>';
+                courses.forEach(course => {
+                    htmlContent += `
+                        <li class="course">
+                            <strong>Curso:</strong> ${course.name}
+                            <ul>
+                    `;
+                    if (course.modules && Array.isArray(course.modules)) {
+                        course.modules.forEach(module => {
+                            htmlContent += `
+                                <li class="module">
+                                    <strong>Módulo:</strong> ${module.name}
+                                    <ul>
+                            `;
+                            if (module.files && Array.isArray(module.files)) {
+                                module.files.forEach(file => {
+                                    // O caminho 'file.path' é relativo a /output, que é a base para o download
+                                    const downloadUrl = `${API_BASE_URL}/download/${encodeURIComponent(file.path)}`;
+                                    htmlContent += `
+                                        <li class="file">
+                                            <a href="${downloadUrl}" target="_blank">${file.name}</a>
+                                            <button onclick="forceMerge('${course.name}', '${module.name}', '${file.name.replace('.txt', '')}')">Forçar Merge</button>
+                                        </li>
+                                    `;
+                                });
+                            }
+                            htmlContent += `
+                                    </ul>
+                                </li>
+                            `;
+                        });
+                    }
+                    htmlContent += `
+                            </ul>
+                        </li>
+                    `;
+                });
+                htmlContent += '</ul>';
+                listElement.innerHTML = htmlContent;
+
+            } catch (error) {
+                console.error('Erro ao buscar transcrições:', error);
+                listElement.innerHTML = `<p>Erro ao carregar transcrições: ${error.message}</p>`;
+                responseElement.textContent = `Erro ao buscar transcrições: ${error.message}`;
+            }
+        }
+
+        // Função placeholder para Forçar Merge (será implementada)
+        async function forceMerge(courseName, moduleName, baseName) {
+            alert(`[Ação Simulada] Forçar Merge solicitado para:\nCurso: ${courseName}\nMódulo: ${moduleName}\nBase Name: ${baseName}\n\nEsta funcionalidade será implementada em breve.`);
+            // Aqui você chamaria o endpoint POST /api/merge/force
+            /*
+            try {
+                const response = await fetch(`${API_BASE_URL}/merge/force`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        course_name: courseName,
+                        module_name: moduleName,
+                        base_name: baseName
+                    })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Erro ${response.status}`);
+                }
+                const result = await response.json();
+                alert(`Merge forçado concluído!\n${result.message}`);
+                // Atualizar a lista de transcrições
+                fetchAndDisplayTranscriptions();
+            } catch (error) {
+                console.error('Erro ao forçar merge:', error);
+                alert(`Erro ao forçar merge: ${error.message}`);
+            }
+            */
+        }
+
+        // Busca o status ao carregar a página
+        document.addEventListener('DOMContentLoaded', (event) => {
+            fetchAndDisplayDetailedStatus();
+            fetchAndDisplayTranscriptions();
+        });
+
+        // Adiciona listeners aos botões de depuração
+        document.getElementById('fetch-status-btn').addEventListener('click', fetchAndDisplayDetailedStatus);
+        document.getElementById('fetch-transcriptions-btn').addEventListener('click', fetchAndDisplayTranscriptions);
+        document.getElementById('refresh-transcriptions').addEventListener('click', fetchAndDisplayTranscriptions);
+
+        // Atualiza o status a cada 30 segundos (opcional)
+        // setInterval(fetchAndDisplayDetailedStatus, 30000);
     </script>
 </body>
 
