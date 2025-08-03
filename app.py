@@ -7,6 +7,7 @@ import logging
 import re # Para ordenar os arquivos por número da parte
 import requests # Para notificações Telegram (manter import para futuro)
 import shutil # Para salvar o arquivo uploadado
+from typing import List, Dict # Para tipagem dos retornos da API
 # --- Importações do FastAPI ---
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, status
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,7 +23,7 @@ POLLING_INTERVAL = 300 # 5 minutos em segundos, conforme PDF
 INPUT_GDRIVE_FOLDER = "/input"
 INPUT_WEB_FOLDER = "/input_web"
 OUTPUT_PARTS_FOLDER = "/output_parts"
-OUTPUT_FOLDER = "/output"
+OUTPUT_FOLDER = "/output" # Pasta raiz para transcrições finalizadas
 LOGS_FOLDER = "/logs"
 WEBUI_STATIC_FOLDER = "/app/webui" # Caminho padrão dentro do container
 
@@ -53,6 +54,23 @@ logger = logging.getLogger(__name__)
 # --- Instância do FastAPI ---
 app = FastAPI(title="Whisper Transcription API", description="API para transcrição de áudios")
 # ----------------------------
+
+# --- Modelos Pydantic para retornos da API ---
+from pydantic import BaseModel
+
+class TranscriptionFile(BaseModel):
+    name: str
+    path: str
+
+class TranscriptionModule(BaseModel):
+    name: str
+    files: List[TranscriptionFile]
+
+class TranscriptionCourse(BaseModel):
+    name: str
+    modules: List[TranscriptionModule]
+
+# ---------------------------------------------
 
 # --- Rotas da API (FastAPI Endpoints) ---
 @app.get("/api/status", summary="Status do Sistema", description="Retorna o status básico do sistema.")
@@ -122,7 +140,91 @@ async def upload_file(
         logger.error(f"[UPLOAD] Erro durante o upload do arquivo '{file.filename if 'file' in locals() else 'desconhecido'}': {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar o upload.")
 
-# TODO: Adicionar mais endpoints (download, status detalhado) conforme necessário.
+@app.get("/api/transcriptions", response_model=List[TranscriptionCourse], summary="Lista Transcrições", description="Lista todos os cursos, módulos e arquivos de transcrição disponíveis para download.")
+async def list_transcriptions():
+    """
+    Endpoint para listar as transcrições disponíveis.
+    Retorna uma estrutura JSON representando a hierarquia de cursos, módulos e arquivos.
+    """
+    try:
+        courses_list = []
+        if not os.path.exists(OUTPUT_FOLDER):
+             logger.warning(f"[API] Pasta de saída '{OUTPUT_FOLDER}' não encontrada.")
+             return courses_list # Retorna lista vazia se a pasta não existir
+
+        # 1. Iterar por cada curso (pasta dentro de /output)
+        for course_name in os.listdir(OUTPUT_FOLDER):
+            course_path = os.path.join(OUTPUT_FOLDER, course_name)
+            if os.path.isdir(course_path):
+                course_data = TranscriptionCourse(name=course_name, modules=[])
+                
+                # 2. Iterar por cada módulo (subpasta do curso)
+                for module_name in os.listdir(course_path):
+                    module_path = os.path.join(course_path, module_name)
+                    if os.path.isdir(module_path):
+                        module_data = TranscriptionModule(name=module_name, files=[])
+                        
+                        # 3. Iterar por cada arquivo .txt no módulo
+                        for filename in os.listdir(module_path):
+                            if filename.endswith(".txt"):
+                                file_path = os.path.join(module_path, filename)
+                                # Armazena o caminho relativo para o download
+                                relative_path = os.path.relpath(file_path, OUTPUT_FOLDER)
+                                file_data = TranscriptionFile(name=filename, path=relative_path)
+                                module_data.files.append(file_data)
+                        
+                        course_data.modules.append(module_data)
+                
+                courses_list.append(course_data)
+        
+        logger.info(f"[API] Listagem de transcrições retornada com {len(courses_list)} cursos encontrados.")
+        return courses_list
+
+    except Exception as e:
+        logger.error(f"[API] Erro ao listar transcrições: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro ao listar transcrições.")
+
+@app.get("/api/download/{full_path:path}", summary="Download de Transcrição", description="Faz o download de um arquivo de transcrição específico.")
+async def download_transcription(full_path: str):
+    """
+    Endpoint para download de um arquivo de transcrição.
+    O 'full_path' é o caminho relativo do arquivo dentro de /output (ex: 'CursoTeste/Modulo1/aula01.txt').
+    """
+    try:
+        # 1. Construir o caminho completo do arquivo solicitado
+        file_path = os.path.join(OUTPUT_FOLDER, full_path)
+        
+        # 2. Validar se o caminho está dentro de OUTPUT_FOLDER (segurança básica)
+        # Impede acessos como ../../../etc/passwd
+        if not os.path.commonpath([OUTPUT_FOLDER, file_path]) == OUTPUT_FOLDER:
+             logger.warning(f"[API] Tentativa de acesso a caminho inválido: {file_path}")
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Caminho de arquivo inválido.")
+        
+        # 3. Verificar se o arquivo existe e é um arquivo regular
+        if not os.path.isfile(file_path):
+            logger.warning(f"[API] Arquivo não encontrado para download: {file_path}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado.")
+
+        # 4. Verificar se é um arquivo .txt (segurança adicional)
+        if not file_path.endswith(".txt"):
+             logger.warning(f"[API] Tentativa de download de arquivo não permitido: {file_path}")
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Somente arquivos .txt podem ser baixados.")
+
+        # 5. Determinar o nome do arquivo para o download
+        filename = os.path.basename(file_path)
+
+        # 6. Retornar o arquivo como resposta de download
+        logger.info(f"[API] Iniciando download de '{file_path}'...")
+        return FileResponse(path=file_path, filename=filename, media_type='text/plain')
+
+    except HTTPException:
+        # Re-levanta exceções HTTP já tratadas
+        raise
+    except Exception as e:
+        logger.error(f"[API] Erro ao fazer download do arquivo '{full_path}': {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro interno ao processar o download.")
+
+# TODO: Adicionar mais endpoints conforme necessário.
 # ----------------------------
 
 # --- Funções do Worker ---
