@@ -325,11 +325,11 @@
               </div>
               <div class="col-md-3 grid-margin stretch-card">
                 <div class="card card-light-danger">
-                  <div class="card-body">
+                <div class="card-body">
                     <p class="mb-2">CPU / RAM</p>
                     <h3 class="mb-2"><span id="metric-cpu">--</span>% / <span id="metric-ram">--</span>%</h3>
                     <p class="mb-0"><span id="metric-ram-used">--</span>GB / <span id="metric-ram-total">--</span>GB</p>
-                  </div>
+                </div>
                 </div>
               </div>
             </div>
@@ -430,6 +430,27 @@
               </div>
             </div>
             
+
+<!-- Seção para Seleção de Modelo -->
+<div class="row">
+  <div class="col-md-12 grid-margin stretch-card">
+    <div class="card">
+      <div class="card-body">
+        <h4 class="card-title">Configuração do Modelo Whisper</h4>
+        <div class="form-group">
+          <label for="whisper-model-select">Selecione o Modelo:</label>
+          <select class="form-control" id="whisper-model-select">
+            <!-- Opções serão preenchidas via JS -->
+            <option>Carregando modelos...</option>
+          </select>
+        </div>
+        <button type="button" class="btn btn-primary" id="apply-model-btn">Aplicar e Reiniciar Container</button>
+        <div id="model-change-feedback" class="mt-2" style="display:none;"></div> <!-- Feedback -->
+      </div>
+    </div>
+  </div>
+</div>
+
           </div>
           <!-- content-wrapper ends -->
             </div>
@@ -442,7 +463,7 @@
     
     <!--SCRIPTS BASE -->
     <script src="assets/js/js_core/funcionalidades.js"></script> 
-    <script src="assets/vendors/vendor.bundle.base.js"></script>
+    <script src="assets/vendors/js/vendor.bundle.base.js"></script>
     <script src="assets/vendors/bootstrap-datepicker/bootstrap-datepicker.min.js"></script>
     <!-- endinject -->
     <!-- Plugin js for this page -->
@@ -461,96 +482,6 @@
     <script src="assets/js/dashboard.js"></script>
     <!-- <script src="assets/js/Chart.roundedBarCharts.js"></script> -->
     <!-- End custom js for this page-->
-    <script>
-        const API_BASE_URL = ''; // Mesmo que antes
-
-        function connectSSE() {
-            // Verificar se o navegador suporta EventSource
-            if (typeof (EventSource) === "undefined") {
-                console.error("Seu navegador não suporta Server-Sent Events (SSE).");
-                alert("Atualizações em tempo real não são suportadas neste navegador.");
-                return;
-            }
-
-            // Criar uma nova conexão SSE
-            const eventSource = new EventSource(`${API_BASE_URL}/api/events`);
-
-            // Definir o que fazer quando receber uma mensagem (evento 'message')
-            eventSource.onmessage = function (event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    console.log("Evento SSE recebido:", data);
-
-                    // --- Atualizar elementos da página com os dados recebidos ---
-
-                    // 1. Métricas do Sistema
-                    if (data.system) {
-                        // Atualizar CPU
-                        const cpuElement = document.getElementById('cpu-usage'); // Certifique-se de ter um elemento com este ID
-                        if (cpuElement) cpuElement.textContent = `${data.system.cpu_percent.toFixed(1)}%`;
-
-                        // Atualizar RAM
-                        const ramElement = document.getElementById('ram-usage'); // Certifique-se de ter um elemento com este ID
-                        if (ramElement) ramElement.textContent = `${data.system.memory_percent.toFixed(1)}% (${data.system.memory_used_gb}GB / ${data.system.memory_total_gb}GB)`;
-                        // Você pode atualizar barras de progresso aqui também, se tiver
-                    }
-
-                    // 2. Status dos Workers
-                    if (data.workers) {
-                        // Atualizar status do worker web
-                        const webStatusElement = document.getElementById('worker-web-status'); // Certifique-se de ter um elemento com este ID
-                        if (webStatusElement) {
-                            const webWorker = data.workers.web;
-                            webStatusElement.textContent = webWorker && webWorker.status ? webWorker.status : 'Desconhecido';
-                            // Você pode mudar a cor ou classe CSS com base no status
-                        }
-                        // Atualizar status do worker gdrive
-                        const gdriveStatusElement = document.getElementById('worker-gdrive-status'); // Certifique-se de ter um elemento com este ID
-                        if (gdriveStatusElement) {
-                            const gdriveWorker = data.workers.gdrive;
-                            gdriveStatusElement.textContent = gdriveWorker && gdriveWorker.status ? gdriveWorker.status : 'Desconhecido';
-                        }
-                    }
-
-                    // 3. Status da Fila
-                    if (data.queue) {
-                        document.getElementById('queue-web').textContent = data.queue.web_size || 0;
-                        document.getElementById('queue-gdrive').textContent = data.queue.gdrive_size || 0;
-                        document.getElementById('total-transcriptions').textContent = data.queue.total_transcriptions || 0;
-                    }
-
-                    // 4. Atualizar timestamp da última atualização
-                    const lastUpdateElement = document.getElementById('last-update'); // Certifique-se de ter um elemento com este ID
-                    if (lastUpdateElement) {
-                        const date = new Date(data.timestamp);
-                        lastUpdateElement.textContent = date.toLocaleTimeString(); // Mostra apenas a hora:min:seg
-                    }
-
-
-                } catch (e) {
-                    console.error("Erro ao processar evento SSE:", e, event.data);
-                }
-            };
-
-            // Definir o que fazer em caso de erro
-            eventSource.onerror = function (err) {
-                console.error("Erro na conexão SSE:", err);
-                // O navegador tentará reconectar automaticamente, mas você pode querer
-                // adicionar lógica para mostrar um aviso ao usuário ou tentar reconectar manualmente
-                // após um tempo.
-            };
-
-            // Opcional: Armazenar a referência do eventSource se precisar fechá-la depois
-            // window.sseConnection = eventSource;
-        }
-
-        // Conectar ao SSE quando a página carregar
-        document.addEventListener('DOMContentLoaded', function () {
-            connectSSE();
-            // Seu fetchData() existente também pode continuar rodando para dados iniciais
-            // fetchData();
-        });
-    </script>
 </body>
 
 </html>

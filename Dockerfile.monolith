@@ -1,10 +1,11 @@
 # Utilizando uma imagem base otimizada para ARM64
 FROM python:3.9-slim
 
-# Instalando dependências do sistema necessárias
+# Instalando dependências do sistema necessárias para build (psutil, etc.)
 RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    curl \
+    build-essential \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Definindo o diretório de trabalho dentro do container

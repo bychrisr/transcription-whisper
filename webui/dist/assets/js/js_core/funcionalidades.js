@@ -1,8 +1,123 @@
-// --- Configuração ---
+// --- Definições e Funções (fora do DOMContentLoaded) ---
 
-    const API_BASE_URL = ''; // Caminho base para a API
+const API_BASE_URL = '';
 
-    // --- Função para Buscar e Atualizar os Cards ---
+// Função para conectar ao SSE
+function connectSSE() {
+    if (typeof(EventSource) === "undefined") {
+        console.error("SSE não suportado.");
+        const statusEl = document.getElementById('system-status');
+        if (statusEl) statusEl.textContent = 'SSE não suportado';
+        return;
+    }
+
+    const eventSource = new EventSource(`${API_BASE_URL}/api/events`);
+    console.log("Conectando ao SSE:", `${API_BASE_URL}/api/events`);
+
+    eventSource.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            console.log("Evento SSE recebido:", data); // Bom para debug
+
+            // --- Atualizar elementos da página com os dados recebidos ---
+            // 1. Métricas do Sistema (CPU, RAM)
+            if (data.system) {
+                const cpuEl = document.getElementById('metric-cpu');
+                const ramEl = document.getElementById('metric-ram');
+                const ramUsedEl = document.getElementById('metric-ram-used');
+                const ramTotalEl = document.getElementById('metric-ram-total');
+
+                // Adicionar logs para depuração
+                console.log("Elementos encontrados:");
+                console.log("CPU:", cpuEl);
+                console.log("RAM:", ramEl);
+                console.log("RAM Usada:", ramUsedEl);
+                console.log("RAM Total:", ramTotalEl);
+
+                if (cpuEl) {
+                    cpuEl.textContent = data.system.cpu_percent !== undefined ? data.system.cpu_percent.toFixed(1) : '--';
+                } else {
+                    console.error("Elemento 'metric-cpu' não encontrado no DOM.");
+                }
+
+                if (ramEl) {
+                    ramEl.textContent = data.system.memory_percent !== undefined ? data.system.memory_percent.toFixed(1) : '--';
+                } else {
+                    console.error("Elemento 'metric-ram' não encontrado no DOM.");
+                }
+
+                if (ramUsedEl) {
+                    ramUsedEl.textContent = data.system.memory_used_gb !== undefined ? data.system.memory_used_gb.toFixed(2) : '--';
+                } else {
+                    console.error("Elemento 'metric-ram-used' não encontrado no DOM.");
+                }
+
+                if (ramTotalEl) {
+                    ramTotalEl.textContent = data.system.memory_total_gb !== undefined ? data.system.memory_total_gb.toFixed(2) : '--';
+                } else {
+                    console.error("Elemento 'metric-ram-total' não encontrado no DOM.");
+                }
+            }
+            // 2. Métricas da Fila
+            if (data.queue) {
+                const totalTransEl = document.getElementById('metric-total-transcriptions');
+                const queueWebEl = document.getElementById('metric-queue-web');
+                const queueGdriveEl = document.getElementById('metric-queue-gdrive');
+
+                if (totalTransEl) {
+                    totalTransEl.textContent = data.queue.total_transcriptions !== undefined ? data.queue.total_transcriptions : 0;
+                }
+                if (queueWebEl) {
+                    queueWebEl.textContent = data.queue.web_size !== undefined ? data.queue.web_size : 0;
+                }
+                if (queueGdriveEl) {
+                    queueGdriveEl.textContent = data.queue.gdrive_size !== undefined ? data.queue.gdrive_size : 0;
+                }
+            }
+            // 3. Status Geral do Sistema
+            const systemStatusEl = document.getElementById('system-status');
+            if (data.workers && systemStatusEl) {
+                const webStatus = data.workers.web?.status || 'Desconhecido';
+                const gdriveStatus = data.workers.gdrive?.status || 'Desconhecido';
+                const overallStatus = (webStatus === 'running' && gdriveStatus === 'running') ? 'Operacional' : 'Problemas';
+                systemStatusEl.textContent = overallStatus;
+            }
+
+        } catch (e) {
+            console.error("Erro ao processar evento SSE:", e, "Dados recebidos:", event.data);
+        }
+    };
+
+    eventSource.onerror = function(err) {
+        console.error("Erro na conexão SSE:", err);
+        const statusEl = document.getElementById('system-status');
+        if (statusEl) {
+            statusEl.textContent = 'Erro na conexão';
+        }
+    };
+}
+
+// Função para atualização periódica via fetch (fallback ou complemento)
+async function updateDashboardCards() {
+    // ... (seu código de fetch /api/status ou /api/status/detailed) ...
+    // Este também pode ser colocado dentro do DOMContentLoaded se precisar manipular DOM
+}
+
+// --- Execução após o DOM estar carregado ---
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("DOM totalmente carregado. Iniciando lógica do dashboard...");
+
+    // Chamar as funções que precisam interagir com o DOM
+    connectSSE(); // Conecta ao Server-Sent Events
+    
+    // Se quiser manter o polling como fallback/complemento:
+    // updateDashboardCards(); 
+    // setInterval(updateDashboardCards, 10000); // Atualiza a cada 10s
+});
+
+// --- Outras inicializações que NÃO precisam esperar o DOM ---
+// (Se houver) Estas podem ficar fora do DOMContentLoaded
+// --- Função para Buscar e Atualizar os Cards ---
     async function updateDashboardCards() {
         try {
             console.log("Buscando dados de /api/status/detailed...");
@@ -107,53 +222,6 @@ document.addEventListener('DOMContentLoaded', function () {
     setupUploadArea(); // Configura o componente de upload
 });
 
-// --- Conexão SSE para Dados em Tempo Real ---
-function connectSSE() {
-    if (typeof(EventSource) === "undefined") {
-        console.error("SSE não suportado.");
-        document.getElementById('system-status').textContent = 'SSE não suportado';
-        return;
-    }
-
-    const eventSource = new EventSource(`${API_BASE_URL}/api/events`);
-    console.log("Conectando ao SSE:", `${API_BASE_URL}/api/events`);
-
-    eventSource.onmessage = function(event) {
-        try {
-            const data = JSON.parse(event.data);
-            console.log("Dados SSE recebidos:", data);
-
-            // Atualizar métricas gerais
-            if (data.system) {
-                document.getElementById('metric-cpu').textContent = data.system.cpu_percent !== undefined ? data.system.cpu_percent.toFixed(1) : '--';
-                document.getElementById('metric-ram').textContent = data.system.memory_percent !== undefined ? data.system.memory_percent.toFixed(1) : '--';
-                document.getElementById('metric-ram-used').textContent = data.system.memory_used_gb !== undefined ? data.system.memory_used_gb.toFixed(2) : '--';
-                document.getElementById('metric-ram-total').textContent = data.system.memory_total_gb !== undefined ? data.system.memory_total_gb.toFixed(2) : '--';
-            }
-            if (data.queue) {
-                document.getElementById('metric-total-transcriptions').textContent = data.queue.total_transcriptions !== undefined ? data.queue.total_transcriptions : 0;
-                document.getElementById('metric-queue-web').textContent = data.queue.web_size !== undefined ? data.queue.web_size : 0;
-                document.getElementById('metric-queue-gdrive').textContent = data.queue.gdrive_size !== undefined ? data.queue.gdrive_size : 0;
-            }
-            if (data.workers) {
-                // Combinar status dos workers para um status geral simples
-                const webStatus = data.workers.web?.status || 'Desconhecido';
-                const gdriveStatus = data.workers.gdrive?.status || 'Desconhecido';
-                const overallStatus = (webStatus === 'running' && gdriveStatus === 'running') ? 'Operacional' : 'Problemas';
-                document.getElementById('system-status').textContent = overallStatus;
-                // Você pode adicionar lógica mais complexa aqui se quiser mostrar status individuais
-            }
-
-        } catch (e) {
-            console.error("Erro ao processar evento SSE:", e, event.data);
-        }
-    };
-
-    eventSource.onerror = function(err) {
-        console.error("Erro na conexão SSE:", err);
-        document.getElementById('system-status').textContent = 'Erro na conexão';
-    };
-}
 
 // --- Carregamento de Dados Iniciais via Fetch ---
 async function loadInitialData() {
@@ -345,4 +413,99 @@ function setupUploadArea() {
             submitBtn.textContent = 'Enviar Arquivo';
         }
     });
+    }
+
+    // --- Função para Carregar e Popular o Select de Modelos ---
+async function loadAndPopulateModels() {
+    const modelSelect = document.getElementById('whisper-model-select');
+    const applyModelBtn = document.getElementById('apply-model-btn');
+    const modelFeedback = document.getElementById('model-change-feedback'); // Adicione este elemento no HTML
+
+    if (!modelSelect || !applyModelBtn) {
+        console.warn("Elementos para seleção de modelo não encontrados no DOM.");
+        return; // Sai se os elementos não existirem
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/models`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+
+        const availableModels = data.available_models;
+        const currentModel = data.current_model;
+
+        // Limpar opções existentes
+        modelSelect.innerHTML = '';
+
+        // Adicionar opções
+        availableModels.forEach(modelName => {
+            const option = document.createElement('option');
+            option.value = modelName;
+            option.textContent = modelName.charAt(0).toUpperCase() + modelName.slice(1); // Capitaliza a primeira letra
+            if (modelName === currentModel) {
+                option.selected = true;
+            }
+            modelSelect.appendChild(option);
+        });
+
+        console.log("Lista de modelos carregada:", availableModels);
+
+        // Adicionar evento ao botão de aplicar
+        applyModelBtn.onclick = async function() {
+            const selectedModel = modelSelect.value;
+            if (!selectedModel) {
+                if (modelFeedback) modelFeedback.textContent = "Por favor, selecione um modelo.";
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/config/model`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ model: selectedModel })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `Erro ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log("Modelo definido:", result);
+                if (modelFeedback) {
+                    modelFeedback.textContent = result.message;
+                    modelFeedback.className = 'alert alert-warning'; // Amarelo para indicar reinicialização
+                }
+                // Opcional: Desabilitar o botão temporariamente
+                // applyModelBtn.disabled = true;
+            } catch (error) {
+                console.error("Erro ao definir modelo:", error);
+                if (modelFeedback) {
+                    modelFeedback.textContent = `Erro: ${error.message}`;
+                    modelFeedback.className = 'alert alert-danger';
+                }
+            }
+        };
+
+    } catch (error) {
+        console.error("Erro ao carregar modelos:", error);
+        if (modelFeedback) {
+            modelFeedback.textContent = `Erro ao carregar modelos: ${error.message}`;
+            modelFeedback.className = 'alert alert-danger';
+        }
+    }
 }
+
+// --- Dentro do seu DOMContentLoaded principal ---
+document.addEventListener('DOMContentLoaded', function () {
+    // ... outras inicializações ...
+    updateDateDisplay();
+    connectSSE();
+    loadInitialData();
+    setupUploadArea();
+    // >>>>> ADICIONE A CHAMADA AQUI <<<<<
+    loadAndPopulateModels(); // Carrega e popula o select de modelos
+    // ... outras inicializações ...
+});

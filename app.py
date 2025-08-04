@@ -64,6 +64,7 @@ OUTPUT_PARTS_DIR = "output_parts"
 OUTPUT_DIR = "output"
 LOGS_DIR = "logs"
 WEBUI_DIR = "webui/dist" # Diretório onde os arquivos estáticos da WebUI foram construídos
+CONFIG_FILE = "config.json" # Caminho para um arquivo de configuração persistente
 
 # Criar diretórios se não existirem
 os.makedirs(INPUT_DIR, exist_ok=True)
@@ -79,6 +80,89 @@ MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
 print(f"Carregando modelo Whisper '{MODEL_NAME}'...")
 model = whisper.load_model(MODEL_NAME) # Carregado uma vez na inicialização
 print("Modelo Whisper carregado com sucesso.")
+
+# Função para carregar a configuração
+def load_config():
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            config = json.load(f)
+            # Validação básica
+            if "model" not in config or config["model"] not in whisper.available_models():
+                 # Se o modelo salvo for inválido, usa o padrão
+                 config["model"] = os.getenv("WHISPER_MODEL", "tiny")
+            return config
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        # Se o arquivo não existir ou for inválido, usa o padrão
+        default_config = {"model": os.getenv("WHISPER_MODEL", "tiny")}
+        save_config(default_config) # Cria o arquivo com o padrão
+        return default_config
+
+# Função para salvar a configuração
+def save_config(config):
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=4)
+    except Exception as e:
+        logging.error(f"Erro ao salvar configuração: {e}")
+
+# Carrega a configuração na inicialização do app.py
+# Substitua a linha `MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")` por:
+app_config = load_config()
+MODEL_NAME = app_config.get("model", "tiny")
+print(f"Carregando modelo Whisper '{MODEL_NAME}'...")
+model = whisper.load_model(MODEL_NAME) # Carregado uma vez na inicialização
+print("Modelo Whisper carregado com sucesso.")
+
+# ... (restante do código existente) ...
+
+# --- Novos Endpoints para Configuração ---
+@app.get("/api/models")
+async def list_models():
+    """Lista os modelos Whisper disponíveis."""
+    try:
+        # whisper.available_models() pode demorar um pouco, mas é uma operação válida
+        available_models = whisper.available_models()
+        # Certifique-se de que o modelo atual esteja na lista
+        current_model = MODEL_NAME
+        return JSONResponse(content={
+            "available_models": available_models,
+            "current_model": current_model
+        })
+    except Exception as e:
+        logging.error(f"Erro ao listar modelos: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao listar modelos")
+
+@app.post("/api/config/model")
+async def set_model(model_data: dict): # Ou crie um Pydantic model para validação
+    """Define o modelo Whisper a ser usado. Requer reinicialização do container."""
+    try:
+        new_model_name = model_data.get("model")
+        if not new_model_name:
+            raise HTTPException(status_code=400, detail="Nome do modelo não fornecido.")
+
+        # Validar se o modelo é suportado
+        available_models = whisper.available_models()
+        if new_model_name not in available_models:
+             raise HTTPException(status_code=400, detail=f"Modelo '{new_model_name}' não é suportado. Modelos disponíveis: {available_models}")
+
+        # Salvar a nova configuração
+        save_config({"model": new_model_name})
+
+        # Logar a mudança
+        logging.info(f"Modelo configurado para '{new_model_name}'. Reinicie o container para aplicar as mudanças.")
+
+        return JSONResponse(
+            content={
+                "message": f"Modelo definido para '{new_model_name}'. Reinicie o container para aplicar as mudanças.",
+                "requires_restart": True
+            },
+            status_code=200
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erro ao definir modelo: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno ao definir modelo: {str(e)}")
 
 # --- Configuração do Telegram ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -162,6 +246,8 @@ def process_audio_file(file_path, output_parts_dir, model_name):
         # Registrar fim da transcrição e calcular duração
         transcription_end_time = time.time()
         transcription_duration_sec = transcription_end_time - transcription_start_time
+
+        
 
         # Salvar transcrição (sem timestamps)
         with open(txt_file_path, "w", encoding='utf-8') as f:
