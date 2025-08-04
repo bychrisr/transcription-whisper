@@ -2,7 +2,7 @@
 """
 Sistema Monolítico de Transcrição Whisper
 Integra Whisper, Workers (GDrive, Web), FastAPI, WebUI e métricas.
-Baseado no commit cd41c683, com melhorias.
+Baseado no commit cd41c683, com melhorias para gatilhos imediatos e corte automático.
 """
 
 # --- Imports e Configurações Iniciais ---
@@ -15,7 +15,9 @@ import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
 import json
-import re # Para sanitizar nomes
+import re  # Para sanitizar nomes
+import subprocess  # Para ffmpeg
+import math  # Para cálculos
 
 # Whisper e Torch
 import whisper
@@ -25,7 +27,7 @@ import torch
 from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware # Para facilitar chamadas da WebUI
+from fastapi.middleware.cors import CORSMiddleware  # Para facilitar chamadas da WebUI
 
 # Para parsing de formulários multipart (upload)
 # from python_multipart import * # Não é necessário importar diretamente
@@ -46,7 +48,7 @@ app = FastAPI(title="Whisper Transcription API")
 # Configuração CORS para permitir que a WebUI (potencialmente em outro host/porta) acesse a API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Em produção, restrinja isso para os domínios específicos
+    allow_origins=["*"],  # Em produção, restrinja isso para os domínios específicos
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,15 +59,16 @@ app.add_middleware(
 logging.basicConfig(
     filename='logs/app.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s' # Adiciona threadName
+    format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s'  # Adiciona threadName
 )
 
 # Logger específico para métricas
 metrics_logger = logging.getLogger("metrics")
-metrics_handler = logging.FileHandler('logs/metrics.log')
-metrics_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-metrics_logger.addHandler(metrics_handler)
-metrics_logger.setLevel(logging.INFO)
+if not metrics_logger.handlers:
+    metrics_handler = logging.FileHandler('logs/metrics.log')
+    metrics_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    metrics_logger.addHandler(metrics_handler)
+    metrics_logger.setLevel(logging.INFO)
 
 # --- Configuração de Pastas ---
 INPUT_DIR = "input"
@@ -73,8 +76,8 @@ INPUT_WEB_DIR = "input_web"
 OUTPUT_PARTS_DIR = "output_parts"
 OUTPUT_DIR = "output"
 LOGS_DIR = "logs"
-WEBUI_DIR = "webui/dist" # Diretório onde os arquivos estáticos da WebUI foram construídos
-UPLOADS_DIR = "uploads" # Pasta para uploads genéricos via WebUI
+WEBUI_DIR = "webui/dist"  # Diretório onde os arquivos estáticos da WebUI foram construídos
+UPLOADS_DIR = "uploads"  # Pasta para uploads genéricos via WebUI
 
 # Criar diretórios se não existirem
 os.makedirs(INPUT_DIR, exist_ok=True)
@@ -82,8 +85,8 @@ os.makedirs(INPUT_WEB_DIR, exist_ok=True)
 os.makedirs(OUTPUT_PARTS_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
-os.makedirs(WEBUI_DIR, exist_ok=True) # Garantir que o diretório exista
-os.makedirs(UPLOADS_DIR, exist_ok=True) # Garantir que o diretório exista
+os.makedirs(WEBUI_DIR, exist_ok=True)  # Garantir que o diretório exista
+os.makedirs(UPLOADS_DIR, exist_ok=True)  # Garantir que o diretório exista
 
 # --- Configuração de Modelo Whisper ---
 # Caminho para um arquivo de configuração persistente
@@ -96,13 +99,13 @@ def load_config():
             config = json.load(f)
             # Validação básica
             if "model" not in config or config["model"] not in whisper.available_models():
-                 # Se o modelo salvo for inválido, usa o padrão
-                 config["model"] = os.getenv("WHISPER_MODEL", "tiny")
+                # Se o modelo salvo for inválido, usa o padrão
+                config["model"] = os.getenv("WHISPER_MODEL", "tiny")
             return config
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         # Se o arquivo não existir ou for inválido, usa o padrão
         default_config = {"model": os.getenv("WHISPER_MODEL", "tiny")}
-        save_config(default_config) # Cria o arquivo com o padrão
+        save_config(default_config)  # Cria o arquivo com o padrão
         return default_config
 
 # Função para salvar a configuração
@@ -117,7 +120,7 @@ def save_config(config):
 app_config = load_config()
 MODEL_NAME = app_config.get("model", "tiny")
 print(f"Carregando modelo Whisper '{MODEL_NAME}'...")
-model = whisper.load_model(MODEL_NAME) # Carregado uma vez na inicialização
+model = whisper.load_model(MODEL_NAME)  # Carregado uma vez na inicialização
 print("Modelo Whisper carregado com sucesso.")
 
 # --- Configuração do Telegram ---
@@ -154,17 +157,142 @@ workers_status = {
 # Métricas de performance (simplificadas)
 # Estrutura para armazenar dados brutos de métricas
 performance_metrics = {
-    "transcription_times": [], # {"model": str, "audio_duration_min": float, "transcription_duration_sec": float}
-    "process_times": [] # {"file_identifier": str, "total_duration_sec": float}
+    "transcription_times": [],  # {"model": str, "audio_duration_min": float, "transcription_duration_sec": float}
+    "process_times": []  # {"file_identifier": str, "total_duration_sec": float}
 }
 
-# --- Funções de Processamento (Workers) ---
+# --- Funções de Processamento (Workers e Helpers) ---
 
 def get_audio_duration(file_path):
     """Estima a duração do áudio em minutos. Simplificado."""
     # Fallback simplificado: Retorna 15 min por padrão (seu corte padrão)
     # Você pode querer implementar a versão com ffprobe para melhor precisão.
-    return 15.0 # Assumindo 15 minutos por parte como padrão
+    return 15.0  # Assumindo 15 minutos por parte como padrão
+
+def split_audio_with_ffmpeg(input_file_path, output_dir, target_duration_min=15):
+    """
+    Corta um arquivo de áudio em partes usando ffmpeg.
+    Retorna uma lista com os caminhos dos arquivos de partes criados.
+    """
+    try:
+        base_name = os.path.splitext(os.path.basename(input_file_path))[0]
+        segment_time = target_duration_min * 60
+        # Usar %03d para padronizar a numeração (part001, part002, ...)
+        output_pattern = os.path.join(output_dir, f"{base_name}_part%03d.mp3")
+
+        cmd = [
+            "ffmpeg", "-i", input_file_path,
+            "-f", "segment",
+            "-segment_time", str(segment_time),
+            "-c", "copy",  # Copia streams, não re-encode (mais rápido)
+            "-y",  # Sobrescrever
+            output_pattern
+        ]
+
+        logging.info(f"Iniciando corte de {input_file_path} em partes de {target_duration_min} min...")
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        if result.returncode != 0:
+            logging.error(f"Erro ao cortar áudio {input_file_path}: {result.stderr}")
+            return []
+
+        # Listar os arquivos de partes criados
+        part_pattern = os.path.join(output_dir, f"{base_name}_part*.mp3")
+        created_parts = sorted(glob.glob(part_pattern))
+
+        logging.info(f"Corte concluído. Partes criadas: {[os.path.basename(p) for p in created_parts]}")
+        return created_parts
+
+    except Exception as e:
+        logging.error(f"Exceção ao cortar áudio {input_file_path}: {e}")
+        return []
+
+def handle_uploaded_file(file_path):
+    """
+    Lida com um arquivo recém-carregado, cortando-o se necessário e iniciando o processamento.
+    Esta função é chamada em uma thread separada após o upload.
+    """
+    try:
+        logging.info(f"Iniciando processamento pós-upload para: {file_path}")
+        file_name = os.path.basename(file_path)
+        file_dir = os.path.dirname(file_path)
+
+        # 1. Verificar se o arquivo já é uma parte
+        if "_part" in file_name:
+            logging.info(f"Arquivo {file_name} já é uma parte. Iniciando transcrição direta.")
+            # Determinar pastas de saída com base na estrutura
+            relative_path = os.path.relpath(file_dir, INPUT_WEB_DIR)
+            output_parts_dir_for_file = os.path.join(OUTPUT_PARTS_DIR, relative_path)
+            os.makedirs(output_parts_dir_for_file, exist_ok=True)
+
+            # Extrair nome base sem _partN
+            base_name = os.path.splitext(file_name)[0]
+            if "_part" in base_name:
+                base_name_no_part = "_".join(base_name.split("_part")[:-1])
+            else:
+                base_name_no_part = base_name
+
+            # Determinar curso e módulo a partir do caminho relativo
+            path_parts = relative_path.split(os.sep)
+            course_dir = path_parts[0] if len(path_parts) > 0 else ""
+            module_dir = path_parts[1] if len(path_parts) > 1 else ""
+
+            # Registrar tempo de upload inicial
+            initial_upload_time = os.path.getctime(file_path)
+
+            # Processar o arquivo
+            txt_file_path = process_audio_file(file_path, output_parts_dir_for_file, MODEL_NAME)
+            if txt_file_path:
+                # Após processar, verificar se pode fazer merge
+                check_and_merge_parts(course_dir, module_dir, base_name_no_part, OUTPUT_PARTS_DIR, OUTPUT_DIR, initial_upload_time)
+
+        else:
+            # 2. Se não for uma parte, cortar o áudio
+            logging.info(f"Arquivo {file_name} não é uma parte. Iniciando corte.")
+            created_parts = split_audio_with_ffmpeg(file_path, file_dir, target_duration_min=15)
+
+            if not created_parts:
+                logging.error(f"Falha ao cortar o áudio {file_path}.")
+                return
+
+            logging.info(f"Áudio cortado em {len(created_parts)} partes. Iniciando transcrição para cada parte.")
+
+            # 3. Processar cada parte criada
+            for part_path in created_parts:
+                part_relative_path = os.path.relpath(os.path.dirname(part_path), INPUT_WEB_DIR)
+                output_parts_dir_for_part = os.path.join(OUTPUT_PARTS_DIR, part_relative_path)
+                os.makedirs(output_parts_dir_for_part, exist_ok=True)
+
+                part_name = os.path.basename(part_path)
+                base_name_part = os.path.splitext(part_name)[0]
+                if "_part" in base_name_part:
+                    base_name_no_part = "_".join(base_name_part.split("_part")[:-1])
+                else:
+                    base_name_no_part = base_name_part
+
+                path_parts = part_relative_path.split(os.sep)
+                course_dir = path_parts[0] if len(path_parts) > 0 else ""
+                module_dir = path_parts[1] if len(path_parts) > 1 else ""
+
+                # Usar o tempo de criação do arquivo original para métricas
+                initial_upload_time = os.path.getctime(file_path)
+
+                # Processar o arquivo da parte
+                txt_file_path = process_audio_file(part_path, output_parts_dir_for_part, MODEL_NAME)
+                if txt_file_path:
+                    # Tentar fazer merge imediatamente após transcrever cada parte
+                    check_and_merge_parts(course_dir, module_dir, base_name_no_part, OUTPUT_PARTS_DIR, OUTPUT_DIR, initial_upload_time)
+
+            # 4. Opcional: Apagar o arquivo original após cortar e iniciar processamento
+            try:
+                os.remove(file_path)
+                logging.info(f"Arquivo original removido após corte: {file_path}")
+            except OSError as e:
+                logging.warning(f"Não foi possível remover o arquivo original {file_path}: {e}")
+
+    except Exception as e:
+        logging.error(f"Erro ao lidar com o arquivo pós-upload {file_path}: {e}", exc_info=True)
+
 
 def process_audio_file(file_path, output_parts_dir, model_name):
     """Processa um único arquivo de áudio."""
@@ -182,7 +310,7 @@ def process_audio_file(file_path, output_parts_dir, model_name):
         transcription_start_time = time.time()
 
         # Transcrever usando Whisper
-        result = model.transcribe(file_path, verbose=False) # verbose=False para menos logs
+        result = model.transcribe(file_path, verbose=False)  # verbose=False para menos logs
         transcription_text = result["text"]
 
         # Registrar fim da transcrição e calcular duração
@@ -217,29 +345,42 @@ def check_and_merge_parts(course_dir, module_dir, base_name_no_part, output_part
     """Verifica se todas as partes estão presentes e faz o merge."""
     merge_start_time = time.time()
     try:
-        # Encontrar todas as partes correspondentes
+        # Encontrar todas as partes correspondentes a este base_name_no_part
+        # Exemplo: Se base_name_no_part = "aula01", busca "aula01_part*.txt"
         pattern = os.path.join(output_parts_dir, course_dir, module_dir, f"{base_name_no_part}_part*.txt")
-        part_files = sorted(glob.glob(pattern), key=lambda x: int(os.path.splitext(x)[0].split('_part')[-1]))
+        part_files = sorted(glob.glob(pattern), key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_part')[-1]))
 
         if not part_files:
-             # Pode não haver partes ainda, ou nome base errado
-             return
+            # Pode não haver partes ainda, ou nome base errado
+            logging.debug(f"Nenhuma parte encontrada para merge de '{base_name_no_part}' usando padrão '{pattern}'.")
+            return
 
-        # Extrair números das partes
-        part_numbers = [int(os.path.splitext(f)[0].split('_part')[-1]) for f in part_files]
-        expected_numbers = list(range(1, max(part_numbers) + 1))
+        logging.info(f"Encontradas partes para '{base_name_no_part}': {[os.path.basename(f) for f in part_files]}")
+
+        # Extrair números das partes encontradas
+        part_numbers = [int(os.path.splitext(os.path.basename(f))[0].split('_part')[-1]) for f in part_files]
+        max_part_number = max(part_numbers) if part_numbers else 0
+
+        # Verificar se há lacunas na sequência (ex: tem part1 e part3, mas não part2)
+        expected_numbers = list(range(1, max_part_number + 1))
+        missing_parts = set(expected_numbers) - set(part_numbers)
+
+        if missing_parts:
+            logging.info(f"Aguardando partes para '{base_name_no_part}'. Faltando: {[f'_part{n}' for n in sorted(missing_parts)]}")
+            return  # Não faz merge se faltar partes
 
         # Verificar se todas as partes esperadas estão presentes
+        # Esta verificação é um pouco redundante com a de cima, mas reforça
         if part_numbers == expected_numbers:
-            logging.info(f"Todas as partes encontradas para {base_name_no_part}. Iniciando merge...")
+            logging.info(f"Todas as partes encontradas para '{base_name_no_part}' (1 a {max_part_number}). Iniciando merge...")
             merged_content = ""
             for part_file in part_files:
-                 try:
-                     with open(part_file, 'r', encoding='utf-8') as f:
-                         merged_content += f.read() + "\n\n"
-                 except Exception as e:
-                     logging.error(f"Erro ao ler parte {part_file} para merge: {e}")
-                     return # Abortar merge se houver erro
+                try:
+                    with open(part_file, 'r', encoding='utf-8') as f:
+                        merged_content += f.read() + "\n\n"
+                except Exception as e:
+                    logging.error(f"Erro ao ler parte {part_file} para merge: {e}")
+                    return  # Abortar merge se houver erro
 
             # Caminho final do arquivo mergeado
             final_output_dir = os.path.join(output_dir, course_dir, module_dir)
@@ -248,7 +389,7 @@ def check_and_merge_parts(course_dir, module_dir, base_name_no_part, output_part
 
             try:
                 with open(final_txt_path, 'w', encoding='utf-8') as f:
-                    f.write(merged_content.strip()) # Remover possíveis novas linhas extras no final
+                    f.write(merged_content.rstrip('\n'))  # Remove possíveis novas linhas extras no final
                 logging.info(f"Merge concluído: {final_txt_path}")
 
                 # Calcular tempo total do processo (upload -> merge)
@@ -273,18 +414,18 @@ def check_and_merge_parts(course_dir, module_dir, base_name_no_part, output_part
                 original_mp3s = glob.glob(input_pattern) + glob.glob(input_web_pattern)
 
                 for part_file in part_files:
-                     try:
-                         os.remove(part_file)
-                         logging.info(f"Parte temporária removida: {part_file}")
-                     except OSError as e:
-                         logging.warning(f"Não foi possível remover parte temporária {part_file}: {e}")
+                    try:
+                        os.remove(part_file)
+                        logging.info(f"Parte temporária removida: {part_file}")
+                    except OSError as e:
+                        logging.warning(f"Não foi possível remover parte temporária {part_file}: {e}")
 
                 for mp3_file in original_mp3s:
-                     try:
-                         os.remove(mp3_file)
-                         logging.info(f"Áudio original removido: {mp3_file}")
-                     except OSError as e:
-                         logging.warning(f"Não foi possível remover áudio original {mp3_file}: {e}")
+                    try:
+                        os.remove(mp3_file)
+                        logging.info(f"Áudio original removido: {mp3_file}")
+                    except OSError as e:
+                        logging.warning(f"Não foi possível remover áudio original {mp3_file}: {e}")
 
                 # Verificar e remover pastas vazias
                 check_and_remove_empty_dirs(course_dir, module_dir)
@@ -292,11 +433,16 @@ def check_and_merge_parts(course_dir, module_dir, base_name_no_part, output_part
             except Exception as e:
                 logging.error(f"Erro ao salvar ou limpar após merge {final_txt_path}: {e}")
         else:
-             missing = set(expected_numbers) - set(part_numbers)
-             logging.info(f"Aguardando partes para {base_name_no_part}. Faltando: {missing}")
+            # Esta condição talvez nunca seja atingida devido à verificação de lacunas acima,
+            # mas mantém como segurança.
+            logging.warning(f"Sequência de partes para '{base_name_no_part}' está inconsistente. Esperadas: {expected_numbers}, Encontradas: {part_numbers}")
+
+    except Exception as e:
+        logging.error(f"Erro crítico em check_and_merge_parts para '{base_name_no_part}': {e}", exc_info=True)  # exc_info=True para stack trace
     finally:
         merge_end_time = time.time()
-        logging.info(f"Tempo total de merge/check para {base_name_no_part}: {merge_end_time - merge_start_time:.2f}s")
+        logging.debug(f"Tempo total de merge/check para '{base_name_no_part}': {merge_end_time - merge_start_time:.2f}s")
+
 
 def check_and_remove_empty_dirs(course_dir, module_dir):
     """Verifica e remove pastas de módulo e curso se estiverem vazias."""
@@ -331,14 +477,14 @@ def check_and_remove_empty_dirs(course_dir, module_dir):
             logging.info(f"Pasta de curso vazia removida: {course_path_input}")
             send_telegram_message(f"🎓 Curso finalizado (diretório vazio): {course_path_input}")
         except OSError as e:
-           logging.warning(f"Não foi possível remover pasta de curso {course_path_input}: {e}")
+            logging.warning(f"Não foi possível remover pasta de curso {course_path_input}: {e}")
 
     if os.path.exists(course_path_input_web) and not any(os.scandir(course_path_input_web)):
         try:
             os.rmdir(course_path_input_web)
             logging.info(f"Pasta de curso vazia removida: {course_path_input_web}")
         except OSError as e:
-           logging.warning(f"Não foi possível remover pasta de curso {course_path_input_web}: {e}")
+            logging.warning(f"Não foi possível remover pasta de curso {course_path_input_web}: {e}")
 
 
 def worker_scan_folder(input_folder, output_parts_base_dir, priority, worker_name):
@@ -347,7 +493,7 @@ def worker_scan_folder(input_folder, output_parts_base_dir, priority, worker_nam
     while True:
         try:
             with state_lock:
-                 workers_status[worker_name]["last_check"] = datetime.utcnow().isoformat() + "Z"
+                workers_status[worker_name]["last_check"] = datetime.utcnow().isoformat() + "Z"
 
             # Varredura da pasta de entrada
             for root, dirs, files in os.walk(input_folder):
@@ -360,9 +506,9 @@ def worker_scan_folder(input_folder, output_parts_base_dir, priority, worker_nam
                         os.makedirs(output_parts_dir_for_file, exist_ok=True)
 
                         # Extrair nome base sem _partN
-                        base_name = os.path.splitext(file)[0] # nome_part1
+                        base_name = os.path.splitext(file)[0]  # nome_part1
                         if "_part" in base_name:
-                            base_name_no_part = "_".join(base_name.split("_part")[:-1]) # nome
+                            base_name_no_part = "_".join(base_name.split("_part")[:-1])  # nome
                         else:
                             base_name_no_part = base_name
 
@@ -380,7 +526,7 @@ def worker_scan_folder(input_folder, output_parts_base_dir, priority, worker_nam
                             initial_upload_time = os.path.getctime(file_path)
 
                             # Processar o arquivo
-                            process_audio_file(file_path, output_parts_dir_for_file, MODEL_NAME) # Passa o modelo atual
+                            process_audio_file(file_path, output_parts_dir_for_file, MODEL_NAME)  # Passa o modelo atual
                             # Após processar, verificar se pode fazer merge
                             check_and_merge_parts(course_dir, module_dir, base_name_no_part, output_parts_base_dir, OUTPUT_DIR, initial_upload_time)
                         else:
@@ -390,7 +536,7 @@ def worker_scan_folder(input_folder, output_parts_base_dir, priority, worker_nam
             logging.error(f"Erro no worker {worker_name} ({input_folder}): {e}")
 
         # Esperar antes da próxima varredura (polling controlado)
-        time.sleep(300) # 5 minutos
+        time.sleep(300)  # 5 minutos
 
 # --- Rotas da API ---
 
@@ -446,16 +592,16 @@ async def get_status_detailed():
             available_whisper_models = whisper.available_models()
         except Exception as e:
             logging.warning(f"Não foi possível obter modelos disponíveis do Whisper: {e}")
-            available_whisper_models = [MODEL_NAME] # Fallback
+            available_whisper_models = [MODEL_NAME]  # Fallback
 
         # 2. Modelos usados (simplificado - assume o modelo atual ou lê de arquivos se quiser)
         models_in_output = set()
         for root, dirs, files in os.walk(OUTPUT_DIR):
             for file in files:
                 if file.endswith(".txt"):
-                     # Lógica simplificada: assume o modelo atual foi usado
-                     # Para ser mais preciso, poderia ler metadados do arquivo .txt ou .meta
-                     models_in_output.add(MODEL_NAME)
+                    # Lógica simplificada: assume o modelo atual foi usado
+                    # Para ser mais preciso, poderia ler metadados do arquivo .txt ou .meta
+                    models_in_output.add(MODEL_NAME)
         # Se nenhum arquivo foi encontrado, pelo menos liste o modelo atual
         if not models_in_output:
             models_in_output.add(MODEL_NAME)
@@ -469,32 +615,32 @@ async def get_status_detailed():
             audio_duration = metric["audio_duration_min"]
             transcription_time = metric["transcription_duration_sec"]
 
-            if audio_duration > 0: # Evitar divisão por zero
+            if audio_duration > 0:  # Evitar divisão por zero
                 speed_sec_per_min = transcription_time / audio_duration
                 model_times[model].append(speed_sec_per_min)
 
         for model, speeds in model_times.items():
             if speeds:
                 avg_speed = sum(speeds) / len(speeds)
-                avg_transcription_speed_per_model[model] = round(avg_speed, 2) # segundos por minuto
+                avg_transcription_speed_per_model[model] = round(avg_speed, 2)  # segundos por minuto
 
         # Calcular média do processo inteiro
         avg_process_time = None
         if metrics_copy["process_times"]:
             total_process_times = [m["total_duration_sec"] for m in metrics_copy["process_times"]]
-            avg_process_time = round(sum(total_process_times) / len(total_process_times), 2) # segundos
+            avg_process_time = round(sum(total_process_times) / len(total_process_times), 2)  # segundos
 
         return JSONResponse(content={
             "status": "running",
             "model": MODEL_NAME,
-            "models_in_output": list(models_in_output), # Modelos encontrados em /output ou disponíveis
+            "models_in_output": list(models_in_output),  # Modelos encontrados em /output ou disponíveis
             "queue_web_size": queue_web_size,
             "queue_gdrive_size": queue_gdrive_size,
             "total_transcriptions": total_transcriptions,
             "workers": worker_statuses,
             "metrics": {
                 "avg_transcription_speed_per_model": avg_transcription_speed_per_model,
-                "avg_process_time_sec": avg_process_time, # Média total do processo
+                "avg_process_time_sec": avg_process_time,  # Média total do processo
                 # Você pode adicionar mais métricas aqui
             },
             "timestamp": datetime.utcnow().isoformat() + "Z"
@@ -514,10 +660,10 @@ async def list_transcriptions():
                     full_path = os.path.join(root, file)
                     relative_path = os.path.relpath(full_path, OUTPUT_DIR)
                     # Tentar estimar duração (simplificado)
-                    duration = None # get_audio_duration(full_path) # Pode ser pesado
+                    duration = None  # get_audio_duration(full_path) # Pode ser pesado
                     transcriptions.append({
                         "name": file,
-                        "path": relative_path, # Caminho relativo para download
+                        "path": relative_path,  # Caminho relativo para download
                         "size": os.path.getsize(full_path),
                         "modified": datetime.fromtimestamp(os.path.getmtime(full_path)).isoformat(),
                         "duration": duration
@@ -537,16 +683,11 @@ async def download_transcription(full_path: str):
     else:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 
-# Endpoint para upload (básico)
+# Endpoint para upload (básico) - AGORA COM GATILHO IMEDIATO
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
-        # Salvar o arquivo na pasta input_web
-        # Presume que o upload já vem com a estrutura de pastas correta
-        # ou que você vai definir um padrão (ex: curso/modulo no nome)
-        # Para simplificar, vamos salvar diretamente em input_web
-        # Você pode querer adicionar lógica para criar pastas dinamicamente
-        # Exemplo: Criar uma pasta padrão para uploads
+        # Salvar o arquivo na pasta input_web/uploads
         upload_dir = os.path.join(INPUT_WEB_DIR, "uploads")
         os.makedirs(upload_dir, exist_ok=True)
         file_location = os.path.join(upload_dir, file.filename)
@@ -556,6 +697,13 @@ async def upload_file(file: UploadFile = File(...)):
             await out_file.write(content)  # async write
 
         logging.info(f"Arquivo carregado: {file_location}")
+
+        # --- NOVIDADE: Gatilho imediato ---
+        # Chama a função para lidar com o arquivo recém-carregado em uma thread
+        processing_thread = threading.Thread(target=handle_uploaded_file, args=(file_location,), daemon=True)
+        processing_thread.start()
+        # --- FIM DA NOVIDADE ---
+
         return JSONResponse(content={"message": "Arquivo carregado com sucesso", "filename": file.filename})
     except Exception as e:
         logging.error(f"Erro ao fazer upload: {e}")
@@ -583,7 +731,7 @@ async def get_performance_metrics_endpoint():
                 "transcription_duration_sec": metric["transcription_duration_sec"],
                 "speed_sec_per_min": metric["transcription_duration_sec"] / metric["audio_duration_min"] if metric["audio_duration_min"] > 0 else 0
             })
-        process_times_data = metrics_copy["process_times"] # [{...}, ...]
+        process_times_data = metrics_copy["process_times"]  # [{...}, ...]
         return JSONResponse(content={
             "transcription_data_by_model": dict(transcription_data_by_model),
             "process_times_data": process_times_data,
@@ -624,7 +772,7 @@ async def set_model(model_data: dict): # Ou crie um Pydantic model para validaç
         # Validar se o modelo é suportado
         available_models = whisper.available_models()
         if new_model_name not in available_models:
-             raise HTTPException(status_code=400, detail=f"Modelo '{new_model_name}' não é suportado. Modelos disponíveis: {available_models}")
+            raise HTTPException(status_code=400, detail=f"Modelo '{new_model_name}' não é suportado. Modelos disponíveis: {available_models}")
 
         # Salvar a nova configuração
         save_config({"model": new_model_name})
@@ -645,7 +793,7 @@ async def set_model(model_data: dict): # Ou crie um Pydantic model para validaç
         logging.error(f"Erro ao definir modelo: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno ao definir modelo: {str(e)}")
 
-# --- 2. Upload Estruturado (Curso/Módulo) ---
+# --- 2. Upload Estruturado (Curso/Módulo) - COM GATILHO IMEDIATO ---
 @app.get("/api/courses")
 async def list_courses():
     """Lista os cursos (pastas) em /input_web/."""
@@ -671,16 +819,16 @@ async def list_modules(course_name: str):
         # Validar course_name para segurança (evitar path traversal)
         # Usar uma expressão regular simples para permitir letras, números, espaços, underscores e hífens
         if not re.match(r'^[\w\-\s]+$', course_name):
-             raise HTTPException(status_code=400, detail="Nome do curso inválido.")
+            raise HTTPException(status_code=400, detail="Nome do curso inválido.")
 
-        safe_course_name = course_name.strip() # Remove espaços extras
+        safe_course_name = course_name.strip()  # Remove espaços extras
         # Substituir espaços por underscores para compatibilidade de sistema de arquivos (opcional)
         # safe_course_name = safe_course_name.replace(' ', '_')
         course_path = os.path.join(INPUT_WEB_DIR, safe_course_name)
 
         if not os.path.exists(course_path) or not os.path.isdir(course_path):
-             # Se o curso não existir, retorna lista vazia em vez de 404
-             return JSONResponse(content=[])
+            # Se o curso não existir, retorna lista vazia em vez de 404
+            return JSONResponse(content=[])
 
         modules = []
         for item in os.listdir(course_path):
@@ -699,16 +847,16 @@ async def list_modules(course_name: str):
 @app.post("/api/upload_structured")
 async def upload_structured_file(
     file: UploadFile = File(...),
-    course: str = Form(...), # Recebe 'course' do formulário
-    module: str = Form(...)  # Recebe 'module' do formulário
+    course: str = Form(...),  # Recebe 'course' do formulário
+    module: str = Form(...)   # Recebe 'module' do formulário
 ):
-    """Endpoint para upload estruturado de arquivos."""
+    """Endpoint para upload estruturado de arquivos. COM GATILHO IMEDIATO."""
     try:
         # Validar nomes (opcional, mas recomendado)
         if not re.match(r'^[\w\-\s]+$', course):
-             raise HTTPException(status_code=400, detail="Nome do curso inválido.")
+            raise HTTPException(status_code=400, detail="Nome do curso inválido.")
         if not re.match(r'^[\w\-\s]+$', module):
-             raise HTTPException(status_code=400, detail="Nome do módulo inválido.")
+            raise HTTPException(status_code=400, detail="Nome do módulo inválido.")
 
         safe_course = course.strip()
         safe_module = module.strip()
@@ -718,7 +866,7 @@ async def upload_structured_file(
 
         # Definir o caminho completo de destino
         target_dir = os.path.join(INPUT_WEB_DIR, safe_course, safe_module)
-        os.makedirs(target_dir, exist_ok=True) # Cria pastas se não existirem
+        os.makedirs(target_dir, exist_ok=True)  # Cria pastas se não existirem
         file_location = os.path.join(target_dir, file.filename)
 
         # Salvar o arquivo
@@ -727,15 +875,21 @@ async def upload_structured_file(
             await out_file.write(content)
 
         logging.info(f"Arquivo estruturado carregado: {file_location}")
+
+        # --- NOVIDADE: Gatilho imediato para upload estruturado ---
+        processing_thread = threading.Thread(target=handle_uploaded_file, args=(file_location,), daemon=True)
+        processing_thread.start()
+        # --- FIM DA NOVIDADE ---
+
         return JSONResponse(
             content={
-                "message": f"Arquivo '{file.filename}' carregado com sucesso para '{safe_course}/{safe_module}'.",
+                "message": f"Arquivo '{file.filename}' carregado com sucesso para '{safe_course}/{safe_module}'. O processamento começará em breve.",
                 "filename": file.filename,
                 "course": safe_course,
                 "module": safe_module,
-                "path": file_location # Caminho relativo ou absoluto, conforme necessidade
+                "path": file_location  # Caminho relativo ou absoluto, conforme necessidade
             },
-            status_code=201 # Created
+            status_code=201  # Created
         )
     except HTTPException:
         raise
@@ -757,8 +911,8 @@ async def upload_server_file(file: UploadFile = File(...)):
         # Abrir o arquivo no destino e escrever o conteúdo recebido
         # Usando aiofiles para operações assíncronas
         async with aiofiles.open(file_location, 'wb') as out_file:
-            content = await file.read() # Lê o conteúdo do arquivo enviado
-            await out_file.write(content) # Escreve o conteúdo no arquivo local
+            content = await file.read()  # Lê o conteúdo do arquivo enviado
+            await out_file.write(content)  # Escreve o conteúdo no arquivo local
 
         logging.info(f"Arquivo '{file.filename}' carregado com sucesso para '{file_location}'")
         return JSONResponse(
@@ -767,7 +921,7 @@ async def upload_server_file(file: UploadFile = File(...)):
                 "filename": file.filename,
                 "path": file_location
             },
-            status_code=201 # Created
+            status_code=201  # Created
         )
     except Exception as e:
         logging.error(f"Erro ao fazer upload do arquivo para o servidor: {e}")
@@ -793,18 +947,18 @@ async def sse_endpoint(request: Request):
             try:
                 # --- Coletar dados para enviar ---
                 # 1. Métricas do Sistema
-                cpu_percent = psutil.cpu_percent(interval=1) # Bloqueante por 1s, mas ok para thread
+                cpu_percent = psutil.cpu_percent(interval=1)  # Bloqueante por 1s, mas ok para thread
                 memory = psutil.virtual_memory()
                 memory_percent = memory.percent
                 memory_used_gb = round(memory.used / (1024**3), 2)
                 memory_total_gb = round(memory.total / (1024**3), 2)
 
                 # 2. Status dos Workers (do state_manager ou variáveis compartilhadas)
-                with state_lock: # Usando o lock do state_manager
+                with state_lock:  # Usando o lock do state_manager
                     worker_statuses = workers_status.copy()
                     # Copiar métricas para evitar modificações durante o envio
                     metrics_copy = {
-                        "transcription_times": performance_metrics["transcription_times"][-10:] if performance_metrics["transcription_times"] else [], # Últimos 10
+                        "transcription_times": performance_metrics["transcription_times"][-10:] if performance_metrics["transcription_times"] else [],  # Últimos 10
                         "process_times": performance_metrics["process_times"][-10:] if performance_metrics["process_times"] else [],
                     }
 
@@ -830,21 +984,21 @@ async def sse_endpoint(request: Request):
                     },
                     # Você pode adicionar mais dados aqui, como status de transcrições específicas
                     # se tiver um mecanismo para rastreá-las individualmente em andamento
-                    # "active_transcriptions": [...] 
+                    # "active_transcriptions": [...]
                 }
 
                 # --- Enviar o evento ---
                 # Formato SSE: "data: JSON_STRING\n\n"
-                yield f"data: {json.dumps(data_payload)}\n\n"
+                yield f" {json.dumps(data_payload)}\n\n"
 
                 # Aguardar antes de enviar o próximo evento
                 # Use asyncio.sleep para não bloquear o loop de eventos do FastAPI
-                await asyncio.sleep(2) # Envia atualização a cada 2 segundos
+                await asyncio.sleep(2)  # Envia atualização a cada 2 segundos
 
             except Exception as e:
                 print(f"Erro no gerador de eventos SSE: {e}")
                 # Em caso de erro, envia um evento de erro e encerra
-                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+                yield f"event: error\n {json.dumps({'error': str(e)})}\n\n"
                 break
 
     # Retornar uma StreamingResponse com o tipo de conteúdo 'text/event-stream'
@@ -861,11 +1015,11 @@ if __name__ == "__main__":
     import uvicorn
 
     # Iniciar workers em threads separadas
-    # Worker para GDrive (simulado ou com lógica real)
+    # Worker para GDrive (simulado ou com lógica real - mantém polling)
     worker_gdrive_thread = threading.Thread(target=worker_scan_folder, args=(INPUT_DIR, OUTPUT_PARTS_DIR, 70, "gdrive"), name="Worker-GDrive", daemon=True)
     worker_gdrive_thread.start()
 
-    # Worker para WebUI
+    # Worker para WebUI (mantém polling como fallback, mas uploads são processados imediatamente)
     worker_web_thread = threading.Thread(target=worker_scan_folder, args=(INPUT_WEB_DIR, OUTPUT_PARTS_DIR, 30, "web"), name="Worker-Web", daemon=True)
     worker_web_thread.start()
 
