@@ -24,443 +24,443 @@
     <link rel="stylesheet" src="assets/css/css_admin.css">
     <!-- endinject -->
     <link rel="shortcut icon" href="assets/images/favicon.png" />
+
+  <!-- Estilo customizado para o componente de upload -->
+  <style>
+    /* --- Estilo do Componente de Upload (Simplificado do teste_upload_bonito.html) --- */
+    .upload-area {
+        position: relative;
+        width: 100%;
+        min-height: 150px;
+        border: 2px dashed #ebedf2; /* Cor da borda do template */
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        text-align: center;
+        background-color: #f8f9fa; /* Fundo claro do template */
+        transition: all 0.3s ease;
+        cursor: pointer;
+        overflow: hidden;
+    }
+
+    .upload-area:hover, .upload-area.dragover {
+        border-color: #4d8af0; /* Cor primária do template */
+        background-color: rgba(77, 138, 240, 0.05);
+    }
+
+    .upload-area .icon-placeholder {
+        font-size: 2rem;
+        color: #4d8af0; /* Cor primária */
+        margin-bottom: 10px;
+    }
+
+    .upload-area h4 {
+        margin-bottom: 5px;
+        font-weight: 500;
+        font-size: 1rem;
+    }
+
+    .upload-area p {
+        color: #6c757d; /* Texto secundário do template */
+        margin-bottom: 10px;
+        font-size: 0.85rem;
+    }
+
+    .upload-area .browse-button {
+        font-size: 0.8rem;
+        padding: 5px 10px;
+    }
+
+    /* Input file escondido */
+    #file-input {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        opacity: 0;
+        cursor: pointer;
+    }
+
+    #upload-feedback {
+        font-size: 0.9rem;
+    }
+    #upload-feedback.success { color: #21bf49; } /* Verde do template */
+    #upload-feedback.error { color: #ff4757; } /* Vermelho do template */
+
+    /* Feedback para seleção de modelo */
+    #model-change-feedback {
+        font-size: 0.9rem;
+        padding: 10px;
+        border-radius: 4px;
+        margin-top: 10px;
+    }
+
+    /* Barra de progresso customizada (se necessário) */
+    .progress-container {
+        width: 100%;
+        height: 10px;
+        background-color: #e9ecef;
+        border-radius: 5px;
+        overflow: hidden;
+        margin-top: 10px;
+        display: none; /* Escondida por padrão */
+    }
+
+    .progress-container.active {
+         display: block;
+    }
+
+    .progress-bar {
+        height: 100%;
+        background-color: #4d8af0; /* Cor primária */
+        width: 0%;
+        transition: width 0.4s ease;
+    }
+  </style>
 </head>
-<body class="with-welcome-text">
-    <div class="container-scroller"> <!-- CONTAINER -->
-        <!-- NAVBAR / HEADER -->
-        <nav class="navbar default-layout col-lg-12 col-12 p-0 fixed-top d-flex align-items-top flex-row">
-            <!-- LOGO E TOGGLE -->
-            <div class="text-center navbar-brand-wrapper d-flex align-items-center justify-content-start">
-                <div class="me-3">
-                    <button class="navbar-toggler navbar-toggler align-self-center" type="button"
-                        data-bs-toggle="minimize">
-                        <span class="icon-menu"></span>
-                    </button>
-                </div>
-                <div> 
-                    <a class="navbar-brand brand-logo" href="admin.html">
-                        <img src="assets/images/logo.svg" alt="logo" />
-                    </a>
-                    <a class="navbar-brand brand-logo-mini" href="admin.html">
-                        <img src="assets/images/logo-mini.svg" alt="logo" />
-                    </a>
-                </div>
-            </div>
-            <!-- HEADER -->
-            <div class="navbar-menu-wrapper d-flex align-items-top">
-                <ul class="navbar-nav">
-                    <li class="nav-item fw-semibold d-none d-lg-block ms-0">
-                        <h1 class="welcome-text">Boa tarde, <span class="text-black fw-bold">Christian Rodrigues</span>
-                        </h1>
-                        <h3 class="welcome-sub-text">Your performance summary this week </h3>
-                    </li>
-                </ul>
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <form class="search-form" action="#">
-                            <i class="icon-search"></i>
-                            <input type="search" class="form-control" placeholder="Search Here" title="Search here">
-                        </form>
-                    </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link count-indicator" id="notificationDropdown" href="#"
-                            data-bs-toggle="dropdown">
-                            <i class="icon-bell"></i>
-                            <span class="count"></span>
-                        </a>
-                        <div class="dropdown-menu dropdown-menu-right navbar-dropdown preview-list pb-0"
-                            aria-labelledby="notificationDropdown">
-                            <a class="dropdown-item py-3 border-bottom">
-                                <p class="mb-0 fw-medium float-start">You have 4 new notifications </p>
-                                <span class="badge badge-pill badge-primary float-end">View all</span>
-                            </a>
-                            <a class="dropdown-item preview-item py-3">
-                                <div class="preview-thumbnail">
-                                    <i class="mdi mdi-alert m-auto text-primary"></i>
-                                </div>
-                                <div class="preview-item-content">
-                                    <h6 class="preview-subject fw-normal text-dark mb-1">Application Error</h6>
-                                    <p class="fw-light small-text mb-0"> Just now </p>
-                                </div>
-                            </a>
-                            <a class="dropdown-item preview-item py-3">
-                                <div class="preview-thumbnail">
-                                    <i class="mdi mdi-lock-outline m-auto text-primary"></i>
-                                </div>
-                                <div class="preview-item-content">
-                                    <h6 class="preview-subject fw-normal text-dark mb-1">Settings</h6>
-                                    <p class="fw-light small-text mb-0"> Private message </p>
-                                </div>
-                            </a>
-                            <a class="dropdown-item preview-item py-3">
-                                <div class="preview-thumbnail">
-                                    <i class="mdi mdi-airballoon m-auto text-primary"></i>
-                                </div>
-                                <div class="preview-item-content">
-                                    <h6 class="preview-subject fw-normal text-dark mb-1">New user registration</h6>
-                                    <p class="fw-light small-text mb-0"> 2 days ago </p>
-                                </div>
-                            </a>
-                        </div>
-                    </li>
-                    <li class="nav-item dropdown d-none d-lg-block user-dropdown">
-                        <a class="nav-link" id="UserDropdown" href="#" data-bs-toggle="dropdown" aria-expanded="false">
-                            <img class="img-xs rounded-circle" src="assets/images/faces/face8.jpg" alt="Profile image">
-                        </a>
-                        <div class="dropdown-menu dropdown-menu-right navbar-dropdown" aria-labelledby="UserDropdown">
-                            <div class="dropdown-header text-center">
-                                <img class="img-md rounded-circle" src="assets/images/faces/face8.jpg"
-                                    alt="Profile image">
-                                <p class="mb-1 mt-3 fw-semibold">Christian Rodrigues</p>
-                                <p class="fw-light text-muted mb-0">rodrigues0christian@gmail.com</p>
-                            </div>
-                            <a class="dropdown-item"><i
-                                    class="dropdown-item-icon mdi mdi-account-outline text-primary me-2"></i> Meu
-                                Perfil <span class="badge badge-pill badge-danger">1</span></a>
-                            <a class="dropdown-item"><i
-                                    class="dropdown-item-icon mdi mdi-message-text-outline text-primary me-2"></i>
-                                Mensagens</a>
-                            <a class="dropdown-item"><i
-                                    class="dropdown-item-icon mdi mdi-calendar-check-outline text-primary me-2"></i>
-                                Atividades</a>
-                            <a class="dropdown-item"><i
-                                    class="dropdown-item-icon mdi mdi-help-circle-outline text-primary me-2"></i>
-                                FAQ</a>
-                            <a class="dropdown-item"><i
-                                    class="dropdown-item-icon mdi mdi-power text-primary me-2"></i>Logout</a>
-                        </div>
-                    </li>
-                </ul>
-                <button class="navbar-toggler navbar-toggler-right d-lg-none align-self-center" type="button"
-                    data-bs-toggle="offcanvas">
-                    <span class="mdi mdi-menu"></span>
-                </button>
-            </div>
-        </nav>
 
-        <!-- CONTENT -->
-        <div class="container-fluid page-body-wrapper">
-            <!-- partial:partials/_sidebar.html -->
-            <nav class="sidebar sidebar-offcanvas" id="sidebar">
-                <ul class="nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="index.html">
-                            <i class="mdi mdi-grid-large menu-icon"></i>
-                            <span class="menu-title">Dashboard</span>
-                        </a>
-                    </li>
-
-
-
-                    <li class="nav-item nav-category">UI Elements</li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="collapse" href="#ui-basic" aria-expanded="false"
-                            aria-controls="ui-basic">
-                            <i class="menu-icon mdi mdi-floor-plan"></i>
-                            <span class="menu-title">UI Elements</span>
-                            <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-basic">
-                            <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"> <a class="nav-link"
-                                        href="pages/ui-features/buttons.html">Buttons</a></li>
-                                <li class="nav-item"> <a class="nav-link"
-                                        href="pages/ui-features/dropdowns.html">Dropdowns</a></li>
-                                <li class="nav-item"> <a class="nav-link"
-                                        href="pages/ui-features/typography.html">Typography</a></li>
-                            </ul>
-                        </div>
-                    </li>
-
-
-
-
-
-                    <li class="nav-item">
-                        <a class="nav-link" href="docs/documentation.html">
-                            <i class="menu-icon mdi mdi-file-document"></i>
-                            <span class="menu-title">Teste</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="collapse" href="#form-elements" aria-expanded="false"
-                            aria-controls="form-elements">
-                            <i class="menu-icon mdi mdi-card-text-outline"></i>
-                            <span class="menu-title">Form elements</span>
-                            <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="form-elements">
-                            <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"><a class="nav-link" href="pages/forms/basic_elements.html">Basic
-                                        Elements</a></li>
-                            </ul>
-                        </div>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="collapse" href="#charts" aria-expanded="false"
-                            aria-controls="charts">
-                            <i class="menu-icon mdi mdi-chart-line"></i>
-                            <span class="menu-title">Charts</span>
-                            <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="charts">
-                            <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"> <a class="nav-link" href="pages/charts/chartjs.html">ChartJs</a>
-                                </li>
-                            </ul>
-                        </div>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="collapse" href="#tables" aria-expanded="false"
-                            aria-controls="tables">
-                            <i class="menu-icon mdi mdi-table"></i>
-                            <span class="menu-title">Tables</span>
-                            <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="tables">
-                            <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"> <a class="nav-link" href="pages/tables/basic-table.html">Basic
-                                        table</a></li>
-                            </ul>
-                        </div>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="collapse" href="#icons" aria-expanded="false"
-                            aria-controls="icons">
-                            <i class="menu-icon mdi mdi-layers-outline"></i>
-                            <span class="menu-title">Icons</span>
-                            <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="icons">
-                            <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"> <a class="nav-link" href="pages/icons/font-awesome.html">Font
-                                        Awesome</a></li>
-                            </ul>
-                        </div>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="collapse" href="#auth" aria-expanded="false"
-                            aria-controls="auth">
-                            <i class="menu-icon mdi mdi-account-circle-outline"></i>
-                            <span class="menu-title">User Pages</span>
-                            <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="auth">
-                            <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"> <a class="nav-link" href="pages/samples/blank-page.html"> Blank
-                                        Page </a></li>
-                                <li class="nav-item"> <a class="nav-link" href="pages/samples/error-404.html"> 404 </a>
-                                </li>
-                                <li class="nav-item"> <a class="nav-link" href="pages/samples/error-500.html"> 500 </a>
-                                </li>
-                                <li class="nav-item"> <a class="nav-link" href="pages/samples/login.html"> Login </a>
-                                </li>
-                                <li class="nav-item"> <a class="nav-link" href="pages/samples/register.html"> Register
-                                    </a></li>
-                            </ul>
-                        </div>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="docs/documentation.html">
-                            <i class="menu-icon mdi mdi-file-document"></i>
-                            <span class="menu-title">Documentation</span>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
-            <!-- partial -->
-            <div class="main-panel">
-                        <!-- partial -->
-        <div class="main-panel">
-          <div class="content-wrapper">
-            <div class="row">
-              <div class="col-md-12 grid-margin">
-                <div class="row">
-                  <div class="col-12 col-xl-8 mb-4 mb-xl-0">
-                    <h3 class="font-weight-bold">Dashboard Administrativo</h3>
-                    <h6 class="font-weight-normal mb-0">Sistema de Transcrição Whisper <span class="text-primary"><b>Status: <span id="system-status">Carregando...</span></b></span></h6>
-                  </div>
-                  <div class="col-12 col-xl-4">
-                   <div class="justify-content-end d-flex">
-                    <div class="dropdown flex-md-grow-1 flex-xl-grow-0">
-                      <button class="btn btn-sm btn-light bg-white dropdown-toggle" type="button" id="dropdownMenuDate2" data-toggle="dropdown" aria-haspopup="true" aria-expanded="true">
-                       <i class="mdi mdi-calendar"></i> <span id="current-date">Hoje</span>
-                      </button>
-                      <!-- Dropdown de datas pode ser mantido ou adaptado -->
-                    </div>
-                   </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Cards de Métricas em Tempo Real -->
-            <div class="row">
-              <div class="col-md-3 grid-margin stretch-card">
-                <div class="card card-tale">
-                  <div class="card-body">
-                    <p class="mb-2">Transcrições Concluídas</p>
-                    <h3 class="mb-2" id="metric-total-transcriptions">0</h3>
-                    <p class="mb-0">Total</p>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-3 grid-margin stretch-card">
-                <div class="card card-dark-blue">
-                  <div class="card-body">
-                    <p class="mb-2">Fila WebUI</p>
-                    <h3 class="mb-2" id="metric-queue-web">0</h3>
-                    <p class="mb-0">Arquivos aguardando</p>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-3 grid-margin stretch-card">
-                <div class="card card-light-blue">
-                  <div class="card-body">
-                    <p class="mb-2">Fila GDrive</p>
-                    <h3 class="mb-2" id="metric-queue-gdrive">0</h3>
-                    <p class="mb-0">Arquivos aguardando</p>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-3 grid-margin stretch-card">
-                <div class="card card-light-danger">
-                <div class="card-body">
-                    <p class="mb-2">CPU / RAM</p>
-                    <h3 class="mb-2"><span id="metric-cpu">--</span>% / <span id="metric-ram">--</span>%</h3>
-                    <p class="mb-0"><span id="metric-ram-used">--</span>GB / <span id="metric-ram-total">--</span>GB</p>
-                </div>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Área de Upload Estilizado -->
-            <div class="row">
-              <div class="col-md-12 grid-margin stretch-card">
-                <div class="card">
-                  <div class="card-body">
-                    <h4 class="card-title">Upload de Áudio para Processamento</h4>
-                    <p class="card-description">Arraste e solte ou selecione um arquivo (.mp3, .wav)</p>
-                    
-                    <!-- Componente de Upload Estilizado -->
-                    <div class="upload-area" id="upload-area">
-                      <div class="icon-placeholder">📁</div>
-                      <h4>Arraste e solte seu arquivo aqui</h4>
-                      <p>Ou</p>
-                      <button type="button" class="btn btn-primary browse-button">Procure no seu dispositivo</button>
-                      <input type="file" id="file-input" accept=".mp3,.wav" class="d-none"> <!-- Escondido, acionado pelo botão -->
-                    </div>
-                    <div id="upload-feedback" class="mt-3"></div>
-                    <button type="button" id="submit-btn" class="btn btn-success btn-block mt-3" style="display:none;">Enviar Arquivo</button>
-                    
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Fila de Processamento e Transcrições -->
-            <div class="row">
-              <!-- Fila de Processamento -->
-              <div class="col-md-6 grid-margin stretch-card">
-                <div class="card">
-                  <div class="card-body">
-                    <h4 class="card-title">Fila de Processamento</h4>
-                    <div class="table-responsive">
-                      <table class="table table-striped">
-                        <thead>
-                          <tr>
-                            <th> Arquivo </th>
-                            <th> Status </th>
-                            <th> Origem </th>
-                          </tr>
-                        </thead>
-                        <tbody id="processing-queue-body">
-                          <tr><td colspan="3" class="text-center">Carregando fila...</td></tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Lista de Transcrições Concluídas -->
-              <div class="col-md-6 grid-margin stretch-card">
-                <div class="card">
-                  <div class="card-body">
-                    <h4 class="card-title">Transcrições Concluídas</h4>
-                    <div class="table-responsive">
-                      <table class="table table-striped">
-                        <thead>
-                          <tr>
-                            <th> Arquivo </th>
-                            <th> Tamanho </th>
-                            <th> Ações </th>
-                          </tr>
-                        </thead>
-                        <tbody id="completed-transcriptions-body">
-                          <tr><td colspan="3" class="text-center">Carregando transcrições...</td></tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <!-- Métricas de Performance Detalhadas -->
-            <div class="row">
-              <div class="col-md-12 grid-margin stretch-card">
-                <div class="card">
-                  <div class="card-body">
-                    <h4 class="card-title">Métricas de Performance</h4>
-                    <div class="row">
-                      <div class="col-md-6">
-                        <h5>Tempo Médio de Transcrição por Modelo</h5>
-                        <ul id="model-performance-list">
-                          <li>Carregando métricas...</li>
-                        </ul>
-                      </div>
-                      <div class="col-md-6">
-                        <h5>Tempo Médio Total do Processo</h5>
-                        <p id="avg-process-time">-- segundos</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-
-<!-- Seção para Seleção de Modelo -->
-<div class="row">
-  <div class="col-md-12 grid-margin stretch-card">
-    <div class="card">
-      <div class="card-body">
-        <h4 class="card-title">Configuração do Modelo Whisper</h4>
-        <div class="form-group">
-          <label for="whisper-model-select">Selecione o Modelo:</label>
-          <select class="form-control" id="whisper-model-select">
-            <!-- Opções serão preenchidas via JS -->
-            <option>Carregando modelos...</option>
-          </select>
-        </div>
-        <button type="button" class="btn btn-primary" id="apply-model-btn">Aplicar e Reiniciar Container</button>
-        <div id="model-change-feedback" class="mt-2" style="display:none;"></div> <!-- Feedback -->
+<body>
+  <div class="container-scroller">
+    <!-- partial:partials/_navbar.html -->
+    <nav class="navbar col-lg-12 col-12 p-0 fixed-top d-flex flex-row">
+      <div class="text-center navbar-brand-wrapper d-flex align-items-center justify-content-center">
+        <a class="navbar-brand brand-logo mr-5" href="index.html"><img src="images/logo.svg" class="mr-2" alt="logo"/></a>
+        <a class="navbar-brand brand-logo-mini" href="index.html"><img src="images/logo-mini.svg" alt="logo"/></a>
       </div>
-    </div>
-  </div>
-</div>
-
-          </div>
-          <!-- content-wrapper ends -->
+      <div class="navbar-menu-wrapper d-flex align-items-center justify-content-end">
+        <button class="navbar-toggler navbar-toggler align-self-center" type="button" data-toggle="minimize">
+          <span class="icon-menu"></span>
+        </button>
+        <ul class="navbar-nav mr-lg-2">
+          <li class="nav-item nav-search d-none d-lg-block">
+            <div class="input-group">
+              <div class="input-group-prepend hover-cursor" id="navbar-search-icon">
+                <span class="input-group-text" id="search">
+                  <i class="icon-search"></i>
+                </span>
+              </div>
+              <input type="text" class="form-control" id="navbar-search-input" placeholder="Search now" aria-label="search" aria-describedby="search">
             </div>
-            <!-- main-panel ends -->
-        </div> <!-- ENC CONTENT -->
-        <!-- page-body-wrapper ends -->
+          </li>
+        </ul>
+        <ul class="navbar-nav navbar-nav-right">
+          <li class="nav-item dropdown">
+            <a class="nav-link count-indicator dropdown-toggle" id="notificationDropdown" href="#" data-toggle="dropdown">
+              <i class="icon-bell mx-0"></i>
+              <span class="count"></span>
+            </a>
+            <div class="dropdown-menu dropdown-menu-right navbar-dropdown preview-list" aria-labelledby="notificationDropdown">
+              <p class="mb-0 font-weight-normal float-left dropdown-header">Notifications</p>
+              <a class="dropdown-item preview-item">
+                <div class="preview-thumbnail">
+                  <div class="preview-icon bg-success">
+                    <i class="ti-info-alt mx-0"></i>
+                  </div>
+                </div>
+                <div class="preview-item-content">
+                  <h6 class="preview-subject font-weight-normal">Application Updated</h6>
+                  <p class="font-weight-light small-text mb-0 text-muted">
+                    Just now
+                  </p>
+                </div>
+              </a>
+            </div>
+          </li>
+          <li class="nav-item nav-profile dropdown">
+            <a class="nav-link dropdown-toggle" href="#" data-toggle="dropdown" id="profileDropdown">
+              <img src="images/faces/face28.jpg" alt="profile"/>
+            </a>
+            <div class="dropdown-menu dropdown-menu-right navbar-dropdown" aria-labelledby="profileDropdown">
+              <a class="dropdown-item">
+                <i class="ti-settings text-primary"></i>
+                Settings
+              </a>
+              <a class="dropdown-item">
+                <i class="ti-power-off text-primary"></i>
+                Logout
+              </a>
+            </div>
+          </li>
+        </ul>
+        <button class="navbar-toggler navbar-toggler-right d-lg-none align-self-center" type="button" data-toggle="offcanvas">
+          <span class="icon-menu"></span>
+        </button>
+      </div>
+    </nav>
+    <!-- partial -->
+    <div class="container-fluid page-body-wrapper">
+      <!-- partial:partials/_sidebar.html -->
+      <nav class="sidebar sidebar-offcanvas" id="sidebar">
+        <ul class="nav">
+          <li class="nav-item">
+            <a class="nav-link" href="index.html">
+              <i class="icon-grid menu-icon"></i>
+              <span class="menu-title">Dashboard</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" data-toggle="collapse" href="#ui-basic" aria-expanded="false" aria-controls="ui-basic">
+              <i class="icon-layout menu-icon"></i>
+              <span class="menu-title">Transcriptions</span>
+              <i class="menu-arrow"></i>
+            </a>
+            <div class="collapse" id="ui-basic">
+              <ul class="nav flex-column sub-menu">
+                <li class="nav-item"> <a class="nav-link" href="#">Upload</a></li>
+                <li class="nav-item"> <a class="nav-link" href="#">List</a></li>
+              </ul>
+            </div>
+          </li>
+        </ul>
+      </nav>
+      <!-- partial -->
+      <div class="main-panel">
+        <div class="content-wrapper">
+          <div class="row">
+            <div class="col-md-12 grid-margin">
+              <div class="row">
+                <div class="col-12 col-xl-8 mb-4 mb-xl-0">
+                  <h3 class="font-weight-bold">Dashboard Administrativo</h3>
+                  <h6 class="font-weight-normal mb-0">Sistema de Transcrição Whisper <span class="text-primary"><b>Status: <span id="system-status">Carregando...</span></b></span></h6>
+                </div>
+                <div class="col-12 col-xl-4">
+                 <div class="justify-content-end d-flex">
+                  <div class="dropdown flex-md-grow-1 flex-xl-grow-0">
+                    <button class="btn btn-sm btn-light bg-white dropdown-toggle" type="button" id="dropdownMenuDate2" data-toggle="dropdown" aria-haspopup="true" aria-expanded="true">
+                     <i class="mdi mdi-calendar"></i> <span id="current-date">Hoje</span>
+                    </button>
+                    <!-- Dropdown de datas pode ser mantido ou adaptado -->
+                  </div>
+                 </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-    </div>  <!-- END CONTAINER -->
-   
-    
+          <!-- Cards de Métricas -->
+          <div class="row">
+            <div class="col-md-3 grid-margin stretch-card">
+              <div class="card card-tale">
+                <div class="card-body">
+                  <p class="mb-2">Transcrições Concluídas</p>
+                  <h3 class="mb-2" id="metric-total-transcriptions">0</h3>
+                  <p class="mb-0">Total</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 grid-margin stretch-card">
+              <div class="card card-dark-blue">
+                <div class="card-body">
+                  <p class="mb-2">Fila WebUI</p>
+                  <h3 class="mb-2" id="metric-queue-web">0</h3>
+                  <p class="mb-0">Arquivos aguardando</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 grid-margin stretch-card">
+              <div class="card card-light-blue">
+                <div class="card-body">
+                  <p class="mb-2">Fila GDrive</p>
+                  <h3 class="mb-2" id="metric-queue-gdrive">0</h3>
+                  <p class="mb-0">Arquivos aguardando</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 grid-margin stretch-card">
+              <div class="card card-light-danger">
+                <div class="card-body">
+                  <p class="mb-2">CPU / RAM</p>
+                  <h3 class="mb-2"><span id="metric-cpu">--</span>% / <span id="metric-ram">--</span>%</h3>
+                  <p class="mb-0"><span id="metric-ram-used">--</span>GB / <span id="metric-ram-total">--</span>GB</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Seção para Seleção de Modelo -->
+          <div class="row">
+            <div class="col-md-12 grid-margin stretch-card">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Configuração do Modelo Whisper</h4>
+                  <div class="form-group">
+                    <label for="whisper-model-select">Selecione o Modelo:</label>
+                    <select class="form-control" id="whisper-model-select">
+                      <!-- Opções serão preenchidas via JS -->
+                      <option>Carregando modelos...</option>
+                    </select>
+                  </div>
+                  <button type="button" class="btn btn-primary" id="apply-model-btn">Aplicar e Reiniciar Container</button>
+                  <div id="model-change-feedback" class="mt-2" style="display:none;"></div> <!-- Feedback -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Área de Upload Estilizado -->
+          <div class="row">
+            <div class="col-md-12 grid-margin stretch-card">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Upload de Áudio para Processamento</h4>
+                  <p class="card-description">Arraste e solte ou selecione um arquivo (.mp3, .wav)</p>
+
+                  <!-- Componente de Upload Estilizado -->
+                  <div class="upload-area" id="upload-area">
+                    <div class="icon-placeholder">📁</div>
+                    <h4>Arraste e solte seu arquivo aqui</h4>
+                    <p>Ou</p>
+                    <button type="button" class="btn btn-primary browse-button">Procure no seu dispositivo</button>
+                    <input type="file" id="file-input" accept=".mp3,.wav" class="d-none"> <!-- Escondido, acionado pelo botão -->
+                  </div>
+                  <div id="upload-feedback" class="mt-3"></div>
+                  <button type="button" id="submit-btn" class="btn btn-success btn-block mt-3" style="display:none;">Enviar Arquivo</button>
+
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila de Processamento e Transcrições -->
+          <div class="row">
+            <!-- Fila de Processamento -->
+            <div class="col-md-6 grid-margin stretch-card">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Fila de Processamento</h4>
+                  <div class="table-responsive">
+                    <table class="table table-striped">
+                      <thead>
+                        <tr>
+                          <th> Arquivo </th>
+                          <th> Status </th>
+                          <th> Origem </th>
+                        </tr>
+                      </thead>
+                      <tbody id="processing-queue-body">
+                        <tr><td colspan="3" class="text-center">Carregando fila...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Lista de Transcrições Concluídas -->
+            <div class="col-md-6 grid-margin stretch-card">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Transcrições Concluídas</h4>
+                  <div class="table-responsive">
+                    <table class="table table-striped">
+                      <thead>
+                        <tr>
+                          <th> Arquivo </th>
+                          <th> Tamanho </th>
+                          <th> Ações </th>
+                        </tr>
+                      </thead>
+                      <tbody id="completed-transcriptions-body">
+                        <tr><td colspan="3" class="text-center">Carregando transcrições...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Métricas de Performance Detalhadas -->
+          <div class="row">
+            <div class="col-md-12 grid-margin stretch-card">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Métricas de Performance</h4>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <h5>Tempo Médio de Transcrição por Modelo</h5>
+                      <ul id="model-performance-list">
+                        <li>Carregando métricas...</li>
+                      </ul>
+                    </div>
+                    <div class="col-md-6">
+                      <h5>Tempo Médio Total do Processo</h5>
+                      <p id="avg-process-time">-- segundos</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Nova Seção: Gerenciar Cursos e Uploads Estruturados -->
+          <div class="row">
+            <div class="col-md-12 grid-margin stretch-card">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Gerenciar Cursos e Uploads Estruturados</h4>
+                  <p class="card-description">Selecione ou crie curso e módulo para o upload.</p>
+
+                  <form id="structured-upload-form">
+                    <div class="form-group">
+                      <label for="select-course">Curso Existente</label>
+                      <select class="form-control" id="select-course">
+                        <option value="">-- Selecione um Curso --</option>
+                        <!-- Opções serão preenchidas via JS -->
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="new-course">Ou Criar Novo Curso</label>
+                      <input type="text" class="form-control" id="new-course" placeholder="Nome do Novo Curso">
+                    </div>
+
+                    <div class="form-group">
+                      <label for="select-module">Módulo Existente (após selecionar curso)</label>
+                      <select class="form-control" id="select-module" disabled>
+                        <option value="">-- Selecione um Curso Primeiro --</option>
+                        <!-- Opções serão preenchidas via JS -->
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="new-module">Ou Criar Novo Módulo</label>
+                      <input type="text" class="form-control" id="new-module" placeholder="Nome do Novo Módulo" disabled>
+                    </div>
+
+                    <div class="form-group">
+                      <label for="structured-file-input">Arquivo(s) de Áudio (.mp3, .wav)</label>
+                      <!-- Input simples por enquanto, pode ser substituído pelo componente bonito -->
+                      <input type="file" class="form-control-file" id="structured-file-input" accept=".mp3,.wav" multiple required>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Enviar Arquivo(s) Estruturado(s)</button>
+                  </form>
+                  <div id="structured-upload-feedback" class="mt-3"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <!-- content-wrapper ends -->
+        <!-- partial:partials/_footer.html -->
+        <footer class="footer">
+          <div class="d-sm-flex justify-content-center justify-content-sm-between">
+            <span class="text-muted text-center text-sm-left d-block d-sm-inline-block">Copyright © 2021.  Premium <a href="https://www.bootstrapdash.com/" target="_blank">Bootstrap admin template</a> from BootstrapDash. All rights reserved.</span>
+            <span class="float-none float-sm-right d-block mt-1 mt-sm-0 text-center">Hand-crafted & made with <i class="ti-heart text-danger ml-1"></i></span>
+          </div>
+        </footer>
+        <!-- partial -->
+      </div>
+      <!-- main-panel ends -->
+    </div>
+    <!-- page-body-wrapper ends -->
+  </div>
+  <!-- container-scroller -->
+
     <!--SCRIPTS BASE -->
     <script src="assets/js/js_core/funcionalidades.js"></script> 
     <script src="assets/vendors/js/vendor.bundle.base.js"></script>

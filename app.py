@@ -1,3 +1,10 @@
+# ~/apps/whisper-transcription-n8n/app.py
+"""
+Sistema Monolítico de Transcrição Whisper
+Integra Whisper, Workers (GDrive, Web), FastAPI, WebUI e métricas.
+Baseado no commit cd41c683, com melhorias.
+"""
+
 # --- Imports e Configurações Iniciais ---
 import os
 import glob
@@ -7,28 +14,31 @@ import time
 import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
-import asyncio
 import json
-import shutil
-import psutil # Para métricas do sistema (CPU, RAM)
+import re # Para sanitizar nomes
 
 # Whisper e Torch
 import whisper
 import torch
 
 # FastAPI
-from fastapi import FastAPI, File, UploadFile, BackgroundTasks, HTTPException, Request
+from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware # Para facilitar chamadas da WebUI
-from fastapi.responses import StreamingResponse
 
 # Para parsing de formulários multipart (upload)
-from python_multipart import *
+# from python_multipart import * # Não é necessário importar diretamente
 import aiofiles
 
 # Para notificações via Telegram
 import requests
+
+# Para métricas de sistema
+import psutil
+
+# Para manipulação de datas/horas
+import asyncio
 
 # --- Configuração do App ---
 app = FastAPI(title="Whisper Transcription API")
@@ -64,7 +74,7 @@ OUTPUT_PARTS_DIR = "output_parts"
 OUTPUT_DIR = "output"
 LOGS_DIR = "logs"
 WEBUI_DIR = "webui/dist" # Diretório onde os arquivos estáticos da WebUI foram construídos
-CONFIG_FILE = "config.json" # Caminho para um arquivo de configuração persistente
+UPLOADS_DIR = "uploads" # Pasta para uploads genéricos via WebUI
 
 # Criar diretórios se não existirem
 os.makedirs(INPUT_DIR, exist_ok=True)
@@ -73,13 +83,11 @@ os.makedirs(OUTPUT_PARTS_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
 os.makedirs(WEBUI_DIR, exist_ok=True) # Garantir que o diretório exista
+os.makedirs(UPLOADS_DIR, exist_ok=True) # Garantir que o diretório exista
 
-# --- Configuração do Modelo Whisper ---
-# Permitir configurar via env var, padrão 'tiny' para desenvolvimento
-MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
-print(f"Carregando modelo Whisper '{MODEL_NAME}'...")
-model = whisper.load_model(MODEL_NAME) # Carregado uma vez na inicialização
-print("Modelo Whisper carregado com sucesso.")
+# --- Configuração de Modelo Whisper ---
+# Caminho para um arquivo de configuração persistente
+CONFIG_FILE = "config.json"
 
 # Função para carregar a configuração
 def load_config():
@@ -105,64 +113,12 @@ def save_config(config):
     except Exception as e:
         logging.error(f"Erro ao salvar configuração: {e}")
 
-# Carrega a configuração na inicialização do app.py
-# Substitua a linha `MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")` por:
+# Carrega a configuração na inicialização
 app_config = load_config()
 MODEL_NAME = app_config.get("model", "tiny")
 print(f"Carregando modelo Whisper '{MODEL_NAME}'...")
 model = whisper.load_model(MODEL_NAME) # Carregado uma vez na inicialização
 print("Modelo Whisper carregado com sucesso.")
-
-# ... (restante do código existente) ...
-
-# --- Novos Endpoints para Configuração ---
-@app.get("/api/models")
-async def list_models():
-    """Lista os modelos Whisper disponíveis."""
-    try:
-        # whisper.available_models() pode demorar um pouco, mas é uma operação válida
-        available_models = whisper.available_models()
-        # Certifique-se de que o modelo atual esteja na lista
-        current_model = MODEL_NAME
-        return JSONResponse(content={
-            "available_models": available_models,
-            "current_model": current_model
-        })
-    except Exception as e:
-        logging.error(f"Erro ao listar modelos: {e}")
-        raise HTTPException(status_code=500, detail="Erro ao listar modelos")
-
-@app.post("/api/config/model")
-async def set_model(model_data: dict): # Ou crie um Pydantic model para validação
-    """Define o modelo Whisper a ser usado. Requer reinicialização do container."""
-    try:
-        new_model_name = model_data.get("model")
-        if not new_model_name:
-            raise HTTPException(status_code=400, detail="Nome do modelo não fornecido.")
-
-        # Validar se o modelo é suportado
-        available_models = whisper.available_models()
-        if new_model_name not in available_models:
-             raise HTTPException(status_code=400, detail=f"Modelo '{new_model_name}' não é suportado. Modelos disponíveis: {available_models}")
-
-        # Salvar a nova configuração
-        save_config({"model": new_model_name})
-
-        # Logar a mudança
-        logging.info(f"Modelo configurado para '{new_model_name}'. Reinicie o container para aplicar as mudanças.")
-
-        return JSONResponse(
-            content={
-                "message": f"Modelo definido para '{new_model_name}'. Reinicie o container para aplicar as mudanças.",
-                "requires_restart": True
-            },
-            status_code=200
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.error(f"Erro ao definir modelo: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro interno ao definir modelo: {str(e)}")
 
 # --- Configuração do Telegram ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -182,7 +138,7 @@ def send_telegram_message(message):
     except requests.exceptions.RequestException as e:
         logging.error(f"Failed to send Telegram message: {e}")
 
-# --- Gerenciamento de Estado (state_manager) ---
+# --- Gerenciamento de Estado (state_manager simplificado) ---
 # Usaremos variáveis globais protegidas por locks para simplicidade e thread-safety
 from threading import Lock
 
@@ -205,21 +161,7 @@ performance_metrics = {
 # --- Funções de Processamento (Workers) ---
 
 def get_audio_duration(file_path):
-    """Estima a duração do áudio em minutos usando FFmpeg (se disponível) ou tamanho do arquivo."""
-    # Esta é uma estimativa simplificada. Para precisão, use ffprobe.
-    # Exemplo com ffprobe (requer instalação):
-    # import subprocess
-    # try:
-    #     result = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
-    #                              "format=duration", "-of",
-    #                              "default=noprint_wrappers=1:nokey=1", file_path],
-    #                             capture_output=True, text=True, check=True)
-    #     duration_seconds = float(result.stdout)
-    #     return duration_seconds / 60.0
-    # except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
-    #     logging.warning(f"Could not determine duration for {file_path}. Using file size estimation.")
-    #     # Fallback: Estimativa grosseira (não muito precisa)
-    #     return os.path.getsize(file_path) / (1024 * 1024 * 0.5) # Assume ~0.5 MB/min (varia muito!)
+    """Estima a duração do áudio em minutos. Simplificado."""
     # Fallback simplificado: Retorna 15 min por padrão (seu corte padrão)
     # Você pode querer implementar a versão com ffprobe para melhor precisão.
     return 15.0 # Assumindo 15 minutos por parte como padrão
@@ -246,8 +188,6 @@ def process_audio_file(file_path, output_parts_dir, model_name):
         # Registrar fim da transcrição e calcular duração
         transcription_end_time = time.time()
         transcription_duration_sec = transcription_end_time - transcription_start_time
-
-        
 
         # Salvar transcrição (sem timestamps)
         with open(txt_file_path, "w", encoding='utf-8') as f:
@@ -500,21 +440,29 @@ async def get_status_detailed():
                 "process_times": performance_metrics["process_times"][:]
             }
 
-        # Calcular métricas agregadas
-        avg_transcription_speed_per_model = {}
-        models_in_output = set()
+        # --- Identificar modelos disponíveis e usados ---
+        # 1. Modelos disponíveis do Whisper
+        try:
+            available_whisper_models = whisper.available_models()
+        except Exception as e:
+            logging.warning(f"Não foi possível obter modelos disponíveis do Whisper: {e}")
+            available_whisper_models = [MODEL_NAME] # Fallback
 
-        # Identificar modelos presentes nos arquivos de saída (simplificado)
-        # Idealmente, isso seria armazenado com os dados de métrica
+        # 2. Modelos usados (simplificado - assume o modelo atual ou lê de arquivos se quiser)
+        models_in_output = set()
         for root, dirs, files in os.walk(OUTPUT_DIR):
             for file in files:
                 if file.endswith(".txt"):
-                     # Aqui você poderia ler o arquivo e extrair o modelo usado
-                     # Por simplicidade, vamos assumir que o modelo atual é o usado
-                     # ou que todos os arquivos foram feitos com o modelo atual
+                     # Lógica simplificada: assume o modelo atual foi usado
+                     # Para ser mais preciso, poderia ler metadados do arquivo .txt ou .meta
                      models_in_output.add(MODEL_NAME)
+        # Se nenhum arquivo foi encontrado, pelo menos liste o modelo atual
+        if not models_in_output:
+            models_in_output.add(MODEL_NAME)
+        # --- Fim da identificação de modelos ---
 
         # Calcular médias por modelo
+        avg_transcription_speed_per_model = {}
         model_times = defaultdict(list)
         for metric in metrics_copy["transcription_times"]:
             model = metric["model"]
@@ -539,7 +487,7 @@ async def get_status_detailed():
         return JSONResponse(content={
             "status": "running",
             "model": MODEL_NAME,
-            "models_in_output": list(models_in_output), # Modelos encontrados em /output
+            "models_in_output": list(models_in_output), # Modelos encontrados em /output ou disponíveis
             "queue_web_size": queue_web_size,
             "queue_gdrive_size": queue_gdrive_size,
             "total_transcriptions": total_transcriptions,
@@ -615,7 +563,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 # Endpoint para métricas de performance específicas
 @app.get("/api/metrics/performance")
-async def get_performance_metrics():
+async def get_performance_metrics_endpoint():
     """Endpoint dedicado para fornecer dados de métricas de performance para o dashboard."""
     try:
         with state_lock:
@@ -624,7 +572,6 @@ async def get_performance_metrics():
                 "transcription_times": performance_metrics["transcription_times"][:],
                 "process_times": performance_metrics["process_times"][:]
             }
-
         # Preparar dados para o frontend
         # Estrutura: { "tiny": [...], "base": [...] }
         transcription_data_by_model = defaultdict(list)
@@ -636,9 +583,7 @@ async def get_performance_metrics():
                 "transcription_duration_sec": metric["transcription_duration_sec"],
                 "speed_sec_per_min": metric["transcription_duration_sec"] / metric["audio_duration_min"] if metric["audio_duration_min"] > 0 else 0
             })
-
         process_times_data = metrics_copy["process_times"] # [{...}, ...]
-
         return JSONResponse(content={
             "transcription_data_by_model": dict(transcription_data_by_model),
             "process_times_data": process_times_data,
@@ -649,11 +594,156 @@ async def get_performance_metrics():
         raise HTTPException(status_code=500, detail="Erro interno ao obter métricas de performance")
 
 
-# --- Novo Endpoint para Upload de Arquivos para o Servidor ---
-# Certifique-se de que a pasta 'uploads' existe
-UPLOADS_DIR = "uploads"
-os.makedirs(UPLOADS_DIR, exist_ok=True)
+# --- Novos Endpoints para Funcionalidades Adicionais ---
 
+# --- 1. Seleção de Modelo ---
+@app.get("/api/models")
+async def list_models():
+    """Lista os modelos Whisper disponíveis."""
+    try:
+        # whisper.available_models() pode demorar um pouco, mas é uma operação válida
+        available_models = whisper.available_models()
+        # Certifique-se de que o modelo atual esteja na lista
+        current_model = MODEL_NAME
+        return JSONResponse(content={
+            "available_models": available_models,
+            "current_model": current_model
+        })
+    except Exception as e:
+        logging.error(f"Erro ao listar modelos: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao listar modelos")
+
+@app.post("/api/config/model")
+async def set_model(model_data: dict): # Ou crie um Pydantic model para validação
+    """Define o modelo Whisper a ser usado. Requer reinicialização do container."""
+    try:
+        new_model_name = model_data.get("model")
+        if not new_model_name:
+            raise HTTPException(status_code=400, detail="Nome do modelo não fornecido.")
+
+        # Validar se o modelo é suportado
+        available_models = whisper.available_models()
+        if new_model_name not in available_models:
+             raise HTTPException(status_code=400, detail=f"Modelo '{new_model_name}' não é suportado. Modelos disponíveis: {available_models}")
+
+        # Salvar a nova configuração
+        save_config({"model": new_model_name})
+
+        # Logar a mudança
+        logging.info(f"Modelo configurado para '{new_model_name}'. Reinicie o container para aplicar as mudanças.")
+
+        return JSONResponse(
+            content={
+                "message": f"Modelo definido para '{new_model_name}'. Reinicie o container para aplicar as mudanças.",
+                "requires_restart": True
+            },
+            status_code=200
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erro ao definir modelo: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno ao definir modelo: {str(e)}")
+
+# --- 2. Upload Estruturado (Curso/Módulo) ---
+@app.get("/api/courses")
+async def list_courses():
+    """Lista os cursos (pastas) em /input_web/."""
+    try:
+        courses = []
+        if os.path.exists(INPUT_WEB_DIR):
+            for item in os.listdir(INPUT_WEB_DIR):
+                item_path = os.path.join(INPUT_WEB_DIR, item)
+                # Listar apenas diretórios
+                if os.path.isdir(item_path):
+                    courses.append(item)
+        # Ordenar alfabeticamente pode ser útil
+        courses.sort()
+        return JSONResponse(content=courses)
+    except Exception as e:
+        logging.error(f"Erro ao listar cursos: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao listar cursos: {str(e)}")
+
+@app.get("/api/courses/{course_name}/modules")
+async def list_modules(course_name: str):
+    """Lista os módulos (pastas) em /input_web/{course_name}/."""
+    try:
+        # Validar course_name para segurança (evitar path traversal)
+        # Usar uma expressão regular simples para permitir letras, números, espaços, underscores e hífens
+        if not re.match(r'^[\w\-\s]+$', course_name):
+             raise HTTPException(status_code=400, detail="Nome do curso inválido.")
+
+        safe_course_name = course_name.strip() # Remove espaços extras
+        # Substituir espaços por underscores para compatibilidade de sistema de arquivos (opcional)
+        # safe_course_name = safe_course_name.replace(' ', '_')
+        course_path = os.path.join(INPUT_WEB_DIR, safe_course_name)
+
+        if not os.path.exists(course_path) or not os.path.isdir(course_path):
+             # Se o curso não existir, retorna lista vazia em vez de 404
+             return JSONResponse(content=[])
+
+        modules = []
+        for item in os.listdir(course_path):
+            item_path = os.path.join(course_path, item)
+            if os.path.isdir(item_path):
+                modules.append(item)
+        modules.sort()
+        return JSONResponse(content=modules)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erro ao listar módulos para {course_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao listar módulos: {str(e)}")
+
+
+@app.post("/api/upload_structured")
+async def upload_structured_file(
+    file: UploadFile = File(...),
+    course: str = Form(...), # Recebe 'course' do formulário
+    module: str = Form(...)  # Recebe 'module' do formulário
+):
+    """Endpoint para upload estruturado de arquivos."""
+    try:
+        # Validar nomes (opcional, mas recomendado)
+        if not re.match(r'^[\w\-\s]+$', course):
+             raise HTTPException(status_code=400, detail="Nome do curso inválido.")
+        if not re.match(r'^[\w\-\s]+$', module):
+             raise HTTPException(status_code=400, detail="Nome do módulo inválido.")
+
+        safe_course = course.strip()
+        safe_module = module.strip()
+        # Substituir espaços por underscores (opcional)
+        # safe_course = safe_course.replace(' ', '_')
+        # safe_module = safe_module.replace(' ', '_')
+
+        # Definir o caminho completo de destino
+        target_dir = os.path.join(INPUT_WEB_DIR, safe_course, safe_module)
+        os.makedirs(target_dir, exist_ok=True) # Cria pastas se não existirem
+        file_location = os.path.join(target_dir, file.filename)
+
+        # Salvar o arquivo
+        async with aiofiles.open(file_location, 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+
+        logging.info(f"Arquivo estruturado carregado: {file_location}")
+        return JSONResponse(
+            content={
+                "message": f"Arquivo '{file.filename}' carregado com sucesso para '{safe_course}/{safe_module}'.",
+                "filename": file.filename,
+                "course": safe_course,
+                "module": safe_module,
+                "path": file_location # Caminho relativo ou absoluto, conforme necessidade
+            },
+            status_code=201 # Created
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erro ao fazer upload estruturado: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao fazer upload estruturado: {str(e)}")
+
+# --- 3. Upload de Arquivo Genérico para o Servidor ---
 @app.post("/api/upload_server_file")
 async def upload_server_file(file: UploadFile = File(...)):
     """
@@ -685,10 +775,8 @@ async def upload_server_file(file: UploadFile = File(...)):
             status_code=500,
             detail=f"Erro interno ao salvar o arquivo: {str(e)}"
         )
-# --- Fim do Novo Endpoint ---
 
-
-# --- Novo Endpoint para Server-Sent Events (SSE) ---
+# --- 4. Server-Sent Events (SSE) ---
 @app.get("/api/events")
 async def sse_endpoint(request: Request):
     """
@@ -761,9 +849,6 @@ async def sse_endpoint(request: Request):
 
     # Retornar uma StreamingResponse com o tipo de conteúdo 'text/event-stream'
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-# --- Fim do Novo Endpoint SSE ---
-
 
 # --- Servir a WebUI ---
 # IMPORTANTE: Esta linha deve vir DEPOIS de todas as outras rotas @app.get/@app.post/etc
