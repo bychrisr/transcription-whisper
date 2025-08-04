@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Star Admin2 </title>
+    <!-- plugins:css -->
+    <link rel="stylesheet" href="assets/vendors/feather/feather.css">
+    <link rel="stylesheet" href="assets/vendors/mdi/css/materialdesignicons.min.css">
+    <link rel="stylesheet" href="assets/vendors/ti-icons/css/themify-icons.css">
+    <link rel="stylesheet" href="assets/vendors/font-awesome/css/font-awesome.min.css">
+    <link rel="stylesheet" href="assets/vendors/typicons/typicons.css">
+    <link rel="stylesheet" href="assets/vendors/simple-line-icons/css/simple-line-icons.css">
+    <link rel="stylesheet" href="assets/vendors/css/vendor.bundle.base.css">
+    <link rel="stylesheet" href="assets/vendors/bootstrap-datepicker/bootstrap-datepicker.min.css">
+    <!-- endinject -->
+    <!-- Plugin css for this page -->
+    <link rel="stylesheet" href="assets/vendors/datatables.net-bs4/dataTables.bootstrap4.css">
+    <link rel="stylesheet" type="text/css" href="assets/js/select.dataTables.min.css">
+    <!-- End plugin css for this page -->
+    <!-- inject:css -->
+    <link rel="stylesheet" href="assets/css/style.css">
+    <!-- endinject -->
+    <link rel="shortcut icon" href="assets/images/favicon.png" />
+</head>
+
+<body class="with-welcome-text"></body>
+<div class="row">
+    <div class="col-md-6 grid-margin stretch-card">
+        <div class="card tale-bg">
+            <div class="card-people mt-auto">
+                <img src="images/dashboard/people.svg" alt="people">
+                <div class="weather-info">
+                    <div class="d-flex">
+                        <div>
+                            <h2 class="mb-0 font-weight-normal"><i class="icon-sun mr-2"></i>31<sup>C</sup></h2>
+                        </div>
+                        <div class="ml-2">
+                            <h4 class="location font-weight-normal">Bangalore</h4>
+                            <h6 class="font-weight-normal">India</h6>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 grid-margin transparent">
+        <div class="row">
+            <div class="col-md-6 mb-4 stretch-card transparent">
+                <div class="card card-tale">
+                    <div class="card-body">
+                        <p class="mb-4">Total Transcriptions</p>
+                        <p class="fs-30 mb-2" id="total-transcriptions">0</p> <!-- ID adicionado -->
+                        <p>10.00% (30 days)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-4 stretch-card transparent">
+                <div class="card card-dark-blue">
+                    <div class="card-body">
+                        <p class="mb-4">Queue Size (Web)</p>
+                        <p class="fs-30 mb-2" id="queue-web">0</p> <!-- ID adicionado -->
+                        <p>22.00% (30 days)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6 mb-4 mb-lg-0 stretch-card transparent">
+                <div class="card card-light-blue">
+                    <div class="card-body">
+                        <p class="mb-4">Queue Size (GDrive)</p>
+                        <p class="fs-30 mb-2" id="queue-gdrive">0</p> <!-- ID adicionado -->
+                        <p>2.00% (30 days)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 stretch-card transparent">
+                <div class="card card-light-danger">
+                    <div class="card-body">
+                        <p class="mb-4">Errors</p>
+                        <p class="fs-30 mb-2" id="errors">0</p> <!-- ID adicionado -->
+                        <p>0.22% (30 days)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ... outros scripts do template ... -->
+<script src="js/off-canvas.js"></script>
+<script src="js/hoverable-collapse.js"></script>
+<script src="js/template.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/todolist.js"></script>
+<!-- ... outros scripts do template ... -->
+
+<!-- Script customizado para consumir a API -->
+<script>
+    const API_BASE_URL = ''; // Caminho base para a API. Como a API está na mesma origem, pode ser vazio ou '/api'
+
+    async function fetchData() {
+        try {
+            // Exemplo: Buscar status detalhado
+            const response = await fetch(`${API_BASE_URL}/api/status/detailed`);
+            if (!response.ok) {
+                // Se /api/status/detailed não estiver disponível, tenta o básico
+                console.warn("API /api/status/detailed não encontrada, tentando /api/status");
+                const fallbackResponse = await fetch(`${API_BASE_URL}/api/status`);
+                if (!fallbackResponse.ok) throw new Error(`HTTP error! status: ${fallbackResponse.status}`);
+                const data = await fallbackResponse.json();
+                // Atualizar elementos da página com os dados básicos
+                document.getElementById('total-transcriptions').textContent = data.total_transcriptions || 0;
+                document.getElementById('queue-web').textContent = data.queue_web_size || 0;
+                document.getElementById('queue-gdrive').textContent = data.queue_gdrive_size || 0;
+                // document.getElementById('errors').textContent = data.errors_count || 0; // Não disponível no /api/status básico
+                console.log("Dados básicos carregados:", data);
+                return;
+            }
+            const data = await response.json();
+
+            // Atualizar elementos da página com os dados
+            document.getElementById('total-transcriptions').textContent = data.total_transcriptions || 0;
+            document.getElementById('queue-web').textContent = data.queue_web_size || 0;
+            document.getElementById('queue-gdrive').textContent = data.queue_gdrive_size || 0;
+            // document.getElementById('errors').textContent = data.errors_count || 0; // Adicione se tiver
+
+            // Exibir dados de métricas se disponíveis
+            if (data.metrics) {
+                console.log("Métricas recebidas:", data.metrics);
+                // Você pode atualizar outros elementos com as métricas aqui
+                // Exemplo: Mostrar média de transcrição
+                const avgSpeedModel = data.metrics.avg_transcription_speed_per_model || {};
+                const modelsList = data.models_in_output || [];
+                console.log("Modelos disponíveis:", modelsList);
+                console.log("Médias por modelo:", avgSpeedModel);
+                // Aqui você poderia popular uma lista suspensa ou outro elemento
+            }
+
+            console.log("Dados detalhados carregados:", data);
+
+        } catch (error) {
+            console.error('Erro ao buscar dados da API:', error);
+            // Tratar erro (mostrar mensagem para o usuário, etc)
+            document.getElementById('total-transcriptions').textContent = 'Erro';
+            document.getElementById('queue-web').textContent = 'Erro';
+            document.getElementById('queue-gdrive').textContent = 'Erro';
+        }
+    }
+
+    // Buscar dados ao carregar a página
+    document.addEventListener('DOMContentLoaded', function () {
+        fetchData();
+        // Opcional: Atualizar dados a cada X segundos
+        // setInterval(fetchData, 30000); // Atualiza a cada 30 segundos
+    });
+</script>
+</body>
+
+</html>
