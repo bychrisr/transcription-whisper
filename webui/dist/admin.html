@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="pt-BR">
 <head>
     <!-- Required meta tags -->
     <meta charset="utf-8">
@@ -25,11 +24,11 @@
     <!-- endinject -->
     <link rel="shortcut icon" href="assets/images/favicon.png" />
 </head>
-
 <body class="with-welcome-text">
-    <div class="container-scroller">
-        <!-- partial:partials/_navbar.html -->
+    <div class="container-scroller"> <!-- CONTAINER -->
+        <!-- NAVBAR / HEADER -->
         <nav class="navbar default-layout col-lg-12 col-12 p-0 fixed-top d-flex align-items-top flex-row">
+            <!-- LOGO E TOGGLE -->
             <div class="text-center navbar-brand-wrapper d-flex align-items-center justify-content-start">
                 <div class="me-3">
                     <button class="navbar-toggler navbar-toggler align-self-center" type="button"
@@ -37,15 +36,16 @@
                         <span class="icon-menu"></span>
                     </button>
                 </div>
-                <div>
-                    <a class="navbar-brand brand-logo" href="index.html">
+                <div> 
+                    <a class="navbar-brand brand-logo" href="admin.html">
                         <img src="assets/images/logo.svg" alt="logo" />
                     </a>
-                    <a class="navbar-brand brand-logo-mini" href="index.html">
+                    <a class="navbar-brand brand-logo-mini" href="admin.html">
                         <img src="assets/images/logo-mini.svg" alt="logo" />
                     </a>
                 </div>
             </div>
+            <!-- HEADER -->
             <div class="navbar-menu-wrapper d-flex align-items-top">
                 <ul class="navbar-nav">
                     <li class="nav-item fw-semibold d-none d-lg-block ms-0">
@@ -136,7 +136,8 @@
                 </button>
             </div>
         </nav>
-        <!-- partial -->
+
+        <!-- CONTENT -->
         <div class="container-fluid page-body-wrapper">
             <!-- partial:partials/_sidebar.html -->
             <nav class="sidebar sidebar-offcanvas" id="sidebar">
@@ -278,31 +279,23 @@
                                         <div class="row">
                                             <div class="col-sm-12">
                                                 <div
-                                                    class="statistics-details d-flex align-items-center justify-content-between">
+                                                    class="statistics-details server d-flex align-items-center justify-content-between">
                                                     <div>
-                                                        <p class="statistics-title">Status do sistema</p>
-                                                        <button type="button"
-                                                            class="btn badge-opacity-success">Online</button>
-                                                        <p class="text-danger d-flex">
-                                                            Modelo Usado:
-                                                            <i class="mdi mdi-menu-down"></i>
-                                                            <span>-0.5%</span>
-                                                        </p>
-                                                        <p class="text-danger d-flex">
-                                                            Dispositivo: <span>MacOS</span>
-                                                            <i class="mdi mdi-menu-down"></i>
-                                                            <span>-0.5%</span>
+                                                        <p class="statistics-title">Status da API</p>
+                                                        <h3 class="rate-percentage ">Online</h3>
+                                                        <p class="text-success d-flex">
+                                                            Carregado<span> - 20:25:18</span>
                                                         </p>
                                                     </div>
                                                     <div>
-                                                        <p class="statistics-title">Page Views</p>
-                                                        <h3 class="rate-percentage">7,682</h3>
+                                                        <p class="statistics-title">Worker GDrive</p>
+                                                        <h3 class="rate-percentage">N/A</h3>
                                                         <p class="text-success d-flex"><i
                                                                 class="mdi mdi-menu-up"></i><span>+0.1%</span></p>
                                                     </div>
                                                     <div>
-                                                        <p class="statistics-title">New Sessions</p>
-                                                        <h3 class="rate-percentage">68.8</h3>
+                                                        <p class="statistics-title">Worker Web</p>
+                                                        <h3 class="rate-percentage">143</h3>
                                                         <p class="text-danger d-flex"><i
                                                                 class="mdi mdi-menu-down"></i><span>68.8</span></p>
                                                     </div>
@@ -375,8 +368,6 @@
                                                                                 </td>
                                                                                 <td>
                                                                                     <div class="d-flex ">
-                                                                                        <img src="assets/images/faces/face1.jpg"
-                                                                                            alt="">
                                                                                         <div>
                                                                                             <h6>Aula 01. Como fazer isso
                                                                                                 acontecer da forma
@@ -845,10 +836,48 @@
                 </div>
             </div>
             <!-- main-panel ends -->
-        </div>
+        </div> <!-- ENC CONTENT -->
         <!-- page-body-wrapper ends -->
-    </div>
-    <!-- container-scroller -->
+
+    </div>  <!-- END CONTAINER -->
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     <!-- plugins:js -->
     <script src="assets/vendors/js/vendor.bundle.base.js"></script>
     <script src="assets/vendors/bootstrap-datepicker/bootstrap-datepicker.min.js"></script>
@@ -869,6 +898,96 @@
     <script src="assets/js/dashboard.js"></script>
     <!-- <script src="assets/js/Chart.roundedBarCharts.js"></script> -->
     <!-- End custom js for this page-->
+    <script>
+        const API_BASE_URL = ''; // Mesmo que antes
+
+        function connectSSE() {
+            // Verificar se o navegador suporta EventSource
+            if (typeof (EventSource) === "undefined") {
+                console.error("Seu navegador não suporta Server-Sent Events (SSE).");
+                alert("Atualizações em tempo real não são suportadas neste navegador.");
+                return;
+            }
+
+            // Criar uma nova conexão SSE
+            const eventSource = new EventSource(`${API_BASE_URL}/api/events`);
+
+            // Definir o que fazer quando receber uma mensagem (evento 'message')
+            eventSource.onmessage = function (event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log("Evento SSE recebido:", data);
+
+                    // --- Atualizar elementos da página com os dados recebidos ---
+
+                    // 1. Métricas do Sistema
+                    if (data.system) {
+                        // Atualizar CPU
+                        const cpuElement = document.getElementById('cpu-usage'); // Certifique-se de ter um elemento com este ID
+                        if (cpuElement) cpuElement.textContent = `${data.system.cpu_percent.toFixed(1)}%`;
+
+                        // Atualizar RAM
+                        const ramElement = document.getElementById('ram-usage'); // Certifique-se de ter um elemento com este ID
+                        if (ramElement) ramElement.textContent = `${data.system.memory_percent.toFixed(1)}% (${data.system.memory_used_gb}GB / ${data.system.memory_total_gb}GB)`;
+                        // Você pode atualizar barras de progresso aqui também, se tiver
+                    }
+
+                    // 2. Status dos Workers
+                    if (data.workers) {
+                        // Atualizar status do worker web
+                        const webStatusElement = document.getElementById('worker-web-status'); // Certifique-se de ter um elemento com este ID
+                        if (webStatusElement) {
+                            const webWorker = data.workers.web;
+                            webStatusElement.textContent = webWorker && webWorker.status ? webWorker.status : 'Desconhecido';
+                            // Você pode mudar a cor ou classe CSS com base no status
+                        }
+                        // Atualizar status do worker gdrive
+                        const gdriveStatusElement = document.getElementById('worker-gdrive-status'); // Certifique-se de ter um elemento com este ID
+                        if (gdriveStatusElement) {
+                            const gdriveWorker = data.workers.gdrive;
+                            gdriveStatusElement.textContent = gdriveWorker && gdriveWorker.status ? gdriveWorker.status : 'Desconhecido';
+                        }
+                    }
+
+                    // 3. Status da Fila
+                    if (data.queue) {
+                        document.getElementById('queue-web').textContent = data.queue.web_size || 0;
+                        document.getElementById('queue-gdrive').textContent = data.queue.gdrive_size || 0;
+                        document.getElementById('total-transcriptions').textContent = data.queue.total_transcriptions || 0;
+                    }
+
+                    // 4. Atualizar timestamp da última atualização
+                    const lastUpdateElement = document.getElementById('last-update'); // Certifique-se de ter um elemento com este ID
+                    if (lastUpdateElement) {
+                        const date = new Date(data.timestamp);
+                        lastUpdateElement.textContent = date.toLocaleTimeString(); // Mostra apenas a hora:min:seg
+                    }
+
+
+                } catch (e) {
+                    console.error("Erro ao processar evento SSE:", e, event.data);
+                }
+            };
+
+            // Definir o que fazer em caso de erro
+            eventSource.onerror = function (err) {
+                console.error("Erro na conexão SSE:", err);
+                // O navegador tentará reconectar automaticamente, mas você pode querer
+                // adicionar lógica para mostrar um aviso ao usuário ou tentar reconectar manualmente
+                // após um tempo.
+            };
+
+            // Opcional: Armazenar a referência do eventSource se precisar fechá-la depois
+            // window.sseConnection = eventSource;
+        }
+
+        // Conectar ao SSE quando a página carregar
+        document.addEventListener('DOMContentLoaded', function () {
+            connectSSE();
+            // Seu fetchData() existente também pode continuar rodando para dados iniciais
+            // fetchData();
+        });
+    </script>
 </body>
 
 </html>

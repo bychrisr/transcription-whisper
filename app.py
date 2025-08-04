@@ -1,9 +1,3 @@
-# ~/apps/whisper-transcription-n8n/app.py
-"""
-Sistema Monolítico de Transcrição Whisper
-Integra Whisper, Workers (GDrive, Web), FastAPI e WebUI.
-"""
-
 # --- Imports e Configurações Iniciais ---
 import os
 import glob
@@ -13,8 +7,10 @@ import time
 import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
+import asyncio
 import json
 import shutil
+import psutil # Para métricas do sistema (CPU, RAM)
 
 # Whisper e Torch
 import whisper
@@ -25,6 +21,7 @@ from fastapi import FastAPI, File, UploadFile, BackgroundTasks, HTTPException, R
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware # Para facilitar chamadas da WebUI
+from fastapi.responses import StreamingResponse
 
 # Para parsing de formulários multipart (upload)
 from python_multipart import *
@@ -603,6 +600,83 @@ async def upload_server_file(file: UploadFile = File(...)):
             detail=f"Erro interno ao salvar o arquivo: {str(e)}"
         )
 # --- Fim do Novo Endpoint ---
+
+
+# --- Novo Endpoint para Server-Sent Events (SSE) ---
+@app.get("/api/events")
+async def sse_endpoint(request: Request):
+    """
+    Endpoint SSE para enviar atualizações em tempo real para o frontend.
+    Envia métricas do sistema e status dos workers periodicamente.
+    """
+    async def event_generator():
+        while True:
+            # Verificar se o cliente desconectou
+            if await request.is_disconnected():
+                print("Cliente SSE desconectado.")
+                break
+
+            try:
+                # --- Coletar dados para enviar ---
+                # 1. Métricas do Sistema
+                cpu_percent = psutil.cpu_percent(interval=1) # Bloqueante por 1s, mas ok para thread
+                memory = psutil.virtual_memory()
+                memory_percent = memory.percent
+                memory_used_gb = round(memory.used / (1024**3), 2)
+                memory_total_gb = round(memory.total / (1024**3), 2)
+
+                # 2. Status dos Workers (do state_manager ou variáveis compartilhadas)
+                with state_lock: # Usando o lock do state_manager
+                    worker_statuses = workers_status.copy()
+                    # Copiar métricas para evitar modificações durante o envio
+                    metrics_copy = {
+                        "transcription_times": performance_metrics["transcription_times"][-10:] if performance_metrics["transcription_times"] else [], # Últimos 10
+                        "process_times": performance_metrics["process_times"][-10:] if performance_metrics["process_times"] else [],
+                    }
+
+                # 3. Status da fila (simplificado)
+                queue_web_size = sum(len(files) for _, _, files in os.walk(INPUT_WEB_DIR) if any(f.endswith('.mp3') and '_part' in f for f in files))
+                queue_gdrive_size = sum(len(files) for _, _, files in os.walk(INPUT_DIR) if any(f.endswith('.mp3') and '_part' in f for f in files))
+                total_transcriptions = sum(len(files) for _, _, files in os.walk(OUTPUT_DIR) if any(f.endswith('.txt') for f in files))
+
+                # --- Preparar o payload do evento ---
+                data_payload = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "system": {
+                        "cpu_percent": cpu_percent,
+                        "memory_percent": memory_percent,
+                        "memory_used_gb": memory_used_gb,
+                        "memory_total_gb": memory_total_gb,
+                    },
+                    "workers": worker_statuses,
+                    "queue": {
+                        "web_size": queue_web_size,
+                        "gdrive_size": queue_gdrive_size,
+                        "total_transcriptions": total_transcriptions,
+                    },
+                    # Você pode adicionar mais dados aqui, como status de transcrições específicas
+                    # se tiver um mecanismo para rastreá-las individualmente em andamento
+                    # "active_transcriptions": [...] 
+                }
+
+                # --- Enviar o evento ---
+                # Formato SSE: "data: JSON_STRING\n\n"
+                yield f"data: {json.dumps(data_payload)}\n\n"
+
+                # Aguardar antes de enviar o próximo evento
+                # Use asyncio.sleep para não bloquear o loop de eventos do FastAPI
+                await asyncio.sleep(2) # Envia atualização a cada 2 segundos
+
+            except Exception as e:
+                print(f"Erro no gerador de eventos SSE: {e}")
+                # Em caso de erro, envia um evento de erro e encerra
+                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+                break
+
+    # Retornar uma StreamingResponse com o tipo de conteúdo 'text/event-stream'
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+# --- Fim do Novo Endpoint SSE ---
 
 
 # --- Servir a WebUI ---

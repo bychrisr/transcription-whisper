@@ -1,97 +1,102 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Whisper Transcription - Usuário</title>
-    <!-- Incluir CSS do Bootstrap ou do seu template aqui -->
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            padding: 20px;
-        }
-
-        .container {
-            display: flex;
-            height: 80vh;
-        }
-
-        .panel {
-            flex: 1;
-            padding: 20px;
-            border: 1px solid #ccc;
-            margin: 10px;
-            overflow-y: auto;
-        }
-
-        #uploadStatus,
-        #transcriptionList {
-            margin-top: 10px;
-        }
-
-        .transcription-item {
-            border-bottom: 1px solid #eee;
-            padding: 10px 0;
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        .progress-bar {
-            width: 100%;
-            background-color: #f0f0f0;
-            border-radius: 5px;
-            overflow: hidden;
-            margin-top: 5px;
-        }
-
-        .progress-fill {
-            height: 20px;
-            background-color: #4CAF50;
-            width: 0%;
-            transition: width 0.5s;
-        }
-    </style>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Star Admin2 </title>
+    <!-- plugins:css -->
+    <link rel="stylesheet" href="assets/vendors/feather/feather.css">
+    <link rel="stylesheet" href="assets/vendors/mdi/css/materialdesignicons.min.css">
+    <link rel="stylesheet" href="assets/vendors/ti-icons/css/themify-icons.css">
+    <link rel="stylesheet" href="assets/vendors/font-awesome/css/font-awesome.min.css">
+    <link rel="stylesheet" href="assets/vendors/typicons/typicons.css">
+    <link rel="stylesheet" href="assets/vendors/simple-line-icons/css/simple-line-icons.css">
+    <link rel="stylesheet" href="assets/vendors/css/vendor.bundle.base.css">
+    <!-- endinject -->
+    <!-- Plugin css for this page -->
+    <link rel="stylesheet" href="assets/vendors/datatables.net-bs4/dataTables.bootstrap4.css">
+    <link rel="stylesheet" type="text/css" href="assets/js/select.dataTables.min.css">
+    <!-- End plugin css for this page -->
+    <!-- inject:css -->
+    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/css_user.css">
+    <!-- endinject -->
+    <link rel="shortcut icon" href="assets/images/favicon.png" />
 </head>
-
 <body>
-    <h1>Área do Usuário - Transcrição de Áudio</h1>
+    <div class="container-scroller"> <!-- CONTAINER -->
+        <!-- CONTENT -->
+        <div class="container-fluid page-body-wrapper">
+        <div class="main-panel">
+            <div class="content-wrapper">
+                <div class="row">
+                    
+                    <div class="col-sm-6"> <!-- UPLOAD -->
+                    <div class="card">
+                        <div class="card-body">
+                            <h4 class="card-title">Enviar Áudio</h4>
+                            <p class="card-description">Selecione ou arraste um arquivo de áudio (.mp3, .wav) para iniciar o upload</p>
 
-    <div class="container">
-        <!-- Painel Esquerdo: Upload -->
-        <div class="panel">
-            <h2>Enviar Áudio</h2>
-            <form id="uploadForm">
-                <input type="file" id="audioFile" name="file" accept=".mp3,.wav" required>
-                <button type="submit">Enviar</button>
-            </form>
-            <div id="uploadStatus"></div>
-            <div id="progressContainer" class="hidden">
-                <p>Enviando...</p>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
+                        <!-- Área de Upload -->
+                            <div class="upload-area" id="upload-area">
+                                <div class="icon-placeholder">📁</div>
+                                <h3>Arraste e solte seu arquivo aqui</h3>
+                                <p>Ou</p>
+                                <button type="button" class="btn btn-inverse-primary btn-fw browse-button">Procure no seu dispositivo</button>
+                                <input type="file" id="file-input" accept=".mp3,.wav">
+                            </div>
+
+                            <!-- Preview do Arquivo -->
+                            <div class="file-preview" id="file-preview">
+                                <div class="file-info">
+                                    <div class="file-icon">🎵</div>
+                                    <div class="file-details">
+                                        <h4 id="file-name">nome_do_arquivo.mp3</h4>
+                                        <p>Tamanho: <span id="file-size">0 MB</span></p>
+                                    </div>
+                                </div>
+                                <div class="progress-container" id="progress-container">
+                                    <div class="progress-bar" id="progress-bar"></div>
+                                </div>
+                            </div>
+
+                            <!-- Botão de Envio -->
+                            <button type="button" id="submit-btn">Enviar Arquivo</button>
+
+                            <!-- Mensagem de Status -->
+                            <div id="status-message"></div>
+
+                        </div>
+                    </div>
+                    </div>
+                    
+                    <div class="col-sm-6"> <!-- LISTA -->
+                        <div class="card">
+                            <div class="card-body">
+                                <h4 class="card-title">Transcrições</h4>
+                                <div class="panel">
+                                    <button id="refreshList" class="btn btn-inverse-primary btn-fw">Atualizar Lista</button>
+                                    
+                                    <div id="transcriptionList">
+                                        <!-- Lista de transcrições será carregada aqui -->
+                                        <p>Carregando transcrições...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
+        </div> <!-- END CONTENT -->
+    </div>  <!-- END CONTAINER -->
 
-        <!-- Painel Direito: Transcrições -->
-        <div class="panel">
-            <h2>Minhas Transcrições</h2>
-            <button id="refreshList">Atualizar Lista</button>
-            <div id="transcriptionList">
-                <!-- Lista de transcrições será carregada aqui -->
-                <p>Carregando transcrições...</p>
-            </div>
-        </div>
-    </div>
 
-    <script>
+    <!-- POPULAR LISTA -->
+    <script> 
         const API_BASE_URL = '/api'; // Base URL da API
-
         // --- Funções para o Painel Esquerdo (Upload) ---
-
         document.getElementById('uploadForm').addEventListener('submit', async function (e) {
             e.preventDefault();
             const fileInput = document.getElementById('audioFile');
@@ -200,6 +205,198 @@
         });
 
     </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const uploadArea = document.getElementById('upload-area');
+            const fileInput = document.getElementById('file-input');
+            const filePreview = document.getElementById('file-preview');
+            const fileName = document.getElementById('file-name');
+            const fileSize = document.getElementById('file-size');
+            const progressBar = document.getElementById('progress-bar');
+            const progressContainer = document.getElementById('progress-container');
+            const submitBtn = document.getElementById('submit-btn');
+            const statusMessage = document.getElementById('status-message');
+
+            // Formatar tamanho de bytes para MB
+            function formatBytes(bytes, decimals = 2) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+            }
+
+            // Mostrar mensagem de status
+            function showStatus(message, type = 'info') {
+                statusMessage.textContent = message;
+                statusMessage.className = ''; // Limpa classes anteriores
+                statusMessage.classList.add('active', type); // Adiciona 'active' e o tipo (success, error, info)
+                statusMessage.style.display = 'block';
+            }
+
+            // Esconder mensagem de status
+            function hideStatus() {
+                statusMessage.style.display = 'none';
+            }
+
+            // Atualizar preview do arquivo
+            function updateFilePreview(file) {
+                if (file) {
+                    fileName.textContent = file.name;
+                    fileSize.textContent = formatBytes(file.size);
+                    filePreview.classList.add('active');
+                    submitBtn.style.display = 'block';
+                    hideStatus(); // Esconde status ao selecionar novo arquivo
+                } else {
+                    filePreview.classList.remove('active');
+                    submitBtn.style.display = 'none';
+                }
+            }
+
+            // Eventos do input file
+            fileInput.addEventListener('change', function () {
+                const file = this.files[0];
+                if (file) {
+                    // Validar tipo de arquivo (opcional, mas bom)
+                    const validTypes = ['audio/mpeg', 'audio/wav'];
+                    const fileExtension = file.name.split('.').pop().toLowerCase();
+                    if (!validTypes.includes(file.type) && !['mp3', 'wav'].includes(fileExtension)) {
+                        showStatus('Tipo de arquivo não suportado. Por favor, selecione um arquivo .mp3 ou .wav.', 'error');
+                        this.value = ''; // Limpa o input
+                        updateFilePreview(null);
+                        return;
+                    }
+                    updateFilePreview(file);
+                }
+            });
+
+            // Eventos de arrastar e soltar
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, unhighlight, false);
+            });
+
+            function highlight() {
+                uploadArea.classList.add('dragover');
+            }
+
+            function unhighlight() {
+                uploadArea.classList.remove('dragover');
+            }
+
+            // Lidar com o drop
+            uploadArea.addEventListener('drop', handleDrop, false);
+
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+
+                if (files.length) {
+                    fileInput.files = files; // Define os arquivos no input
+                    const event = new Event('change'); // Dispara o evento 'change'
+                    fileInput.dispatchEvent(event);
+                }
+            }
+
+            // Evento do botão de envio
+            submitBtn.addEventListener('click', async function () {
+                const file = fileInput.files[0];
+                if (!file) {
+                    showStatus('Nenhum arquivo selecionado.', 'error');
+                    return;
+                }
+
+                // Desabilitar botão e mostrar barra de progresso
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Enviando...';
+                progressContainer.classList.add('active');
+                hideStatus(); // Esconde mensagens anteriores
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    // Simular envio com progresso (em um caso real, você usaria fetch)
+                    // Vamos simular o progresso aqui para demonstração
+                    let progress = 0;
+                    const interval = setInterval(() => {
+                        progress += 5;
+                        if (progress > 100) progress = 100;
+                        progressBar.style.width = `${progress}%`;
+                        if (progress >= 100) {
+                            clearInterval(interval);
+                            // Simular resposta do servidor após "upload"
+                            setTimeout(async () => {
+                                // Em um caso real, você faria:
+                                /*
+                                const response = await fetch('/api/upload', {
+                                    method: 'POST',
+                                    body: formData
+                                });
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    showStatus(`Upload bem-sucedido: ${data.filename}`, 'success');
+                                } else {
+                                    const errorData = await response.json();
+                                    showStatus(`Erro no upload: ${errorData.detail || response.statusText}`, 'error');
+                                }
+                                */
+                                // Como é uma simulação:
+                                showStatus(`Upload simulado bem-sucedido para: ${file.name}`, 'success');
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = 'Enviar Arquivo';
+                                progressContainer.classList.remove('active');
+                                // Limpar seleção após sucesso (opcional)
+                                // fileInput.value = '';
+                                // updateFilePreview(null);
+                            }, 300); // Pequeno atraso para parecer realista
+                        }
+                    }, 50); // Atualiza a barra a cada 50ms
+
+                } catch (error) {
+                    console.error("Erro durante o upload:", error);
+                    showStatus(`Erro de rede: ${error.message}`, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Enviar Arquivo';
+                    progressContainer.classList.remove('active');
+                }
+            });
+
+        });
+    </script>
+    <script src="assets/vendors/js/vendor.bundle.base.js"></script>
+    <script src="assets/vendors/bootstrap-datepicker/bootstrap-datepicker.min.js"></script>
+    <!-- endinject -->
+    <!-- Plugin js for this page -->
+    <script src="assets/vendors/chart.js/chart.umd.js"></script>
+    <script src="assets/vendors/progressbar.js/progressbar.min.js"></script>
+    <!-- End plugin js for this page -->
+    <!-- inject:js -->
+    <script src="assets/js/off-canvas.js"></script>
+    <script src="assets/js/template.js"></script>
+    <script src="assets/js/settings.js"></script>
+    <script src="assets/js/hoverable-collapse.js"></script>
+    <script src="assets/js/todolist.js"></script>
+    <!-- endinject -->
+    <!-- Custom js for this page-->
+    <script src="assets/js/jquery.cookie.js" type="text/javascript"></script>
+    <script src="assets/js/dashboard.js"></script>
+    <!-- <script src="assets/js/Chart.roundedBarCharts.js"></script> -->
+    <!-- End custom js for this page-->
+
 </body>
 
 </html>
